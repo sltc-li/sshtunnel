@@ -1,0 +1,16 @@
+[
+  {
+    "privateKeyFile": "~/.ssh/id_rsa.pem",
+    "sshUserName": "ec2-user",
+    "gatewayUrl": "gateway-abc.ap-northeast-1.compute.amazonaws.com:22",
+    "forwardUrl": "mysql-xyz.ap-northeast-1.rds.amazonaws.com:3306",
+    "localUrl": "127.0.0.1:3306"
+  },
+  {
+    "privateKeyFile": "~/.ssh/id_rsa.pem",
+    "sshUserName": "ec2-user",
+    "gatewayUrl": "gateway-abc.ap-northeast-1.compute.amazonaws.com:22",
+    "forwardUrl": "redis-xyz.cache.amazonaws.com:6379",
+    "localUrl": "127.0.0.1:6379"
+  }
+]
