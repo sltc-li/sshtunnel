@@ -9,7 +9,7 @@ import (
 	"os"
 	"sync"
 
-	"github.com/liyy7/sshtunnel/sshtunnel"
+	"github.com/liyy7/sshtunnel"
 	"github.com/pkg/errors"
 )
 
