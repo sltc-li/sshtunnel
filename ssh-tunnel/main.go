@@ -45,7 +45,7 @@ func main() {
 		go func(config Config) {
 			err := forward(config, logger)
 			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
+				fmt.Fprintf(os.Stderr, "Error: %+v", err)
 			}
 
 			sg.Done()

@@ -133,7 +133,7 @@ func (t *tunnel) startAccept(localListener net.Listener, sshClient *ssh.Client) 
 				break
 			}
 
-			t.logger.Printf("accepted %s\n", localConn.RemoteAddr())
+			t.logger.Printf("accepted %s -> %s\n", t.localURL, localConn.RemoteAddr())
 			go func(localConn net.Conn) {
 				defer localConn.Close()
 				conn, err := sshClient.Dial("tcp", t.url)
@@ -142,7 +142,7 @@ func (t *tunnel) startAccept(localListener net.Listener, sshClient *ssh.Client) 
 				}
 				defer conn.Close()
 				errCh <- t.biCopy(conn, localConn)
-				t.logger.Printf("disconnected %s\n", localConn.RemoteAddr())
+				t.logger.Printf("disconnected %s -> %s\n", t.localURL, localConn.RemoteAddr())
 			}(localConn)
 		}
 	}()
@@ -154,20 +154,37 @@ func (t *tunnel) biCopy(conn, localConn net.Conn) error {
 	errCh := make(chan error)
 
 	go func() {
-		_, err := io.Copy(conn, localConn)
-		if err != nil {
-			err = errors.Wrap(err, "failed to copy from remote to local")
-		}
-		errCh <- err
+		errCh <- errors.Wrap(t.copy(conn, localConn), "failed to copy from remote to local")
 	}()
 
 	go func() {
-		_, err := io.Copy(localConn, conn)
-		if err != nil {
-			err = errors.Wrap(err, "failed to copy from local to remote")
-		}
-		errCh <- err
+		errCh <- errors.Wrap(t.copy(localConn, conn), "failed to copy from local to remote")
 	}()
 
 	return <-errCh
+}
+
+func (*tunnel) copy(dest io.Writer, src io.Reader) error {
+	var n int
+	var err error
+	b := make([]byte, 32*1024)
+	for {
+		if n, err = src.Read(b); err != nil {
+			break
+		}
+		if _, err = dest.Write(b[:n]); err != nil {
+			break
+		}
+	}
+	if err == io.EOF {
+		return nil
+	}
+	if opErr, ok := err.(*net.OpError); ok {
+		if sysErr, ok := opErr.Err.(*os.SyscallError); ok {
+			if sysErr.Err == syscall.ECONNRESET {
+				return nil
+			}
+		}
+	}
+	return err
 }
