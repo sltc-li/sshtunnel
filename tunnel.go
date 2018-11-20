@@ -164,18 +164,8 @@ func (t *tunnel) biCopy(conn, localConn net.Conn) error {
 	return <-errCh
 }
 
-func (*tunnel) copy(dest io.Writer, src io.Reader) error {
-	var n int
-	var err error
-	b := make([]byte, 32*1024)
-	for {
-		if n, err = src.Read(b); err != nil {
-			break
-		}
-		if _, err = dest.Write(b[:n]); err != nil {
-			break
-		}
-	}
+func (*tunnel) copy(dst io.Writer, src io.Reader) error {
+	_, err := io.Copy(dst, src)
 	if err == io.EOF {
 		return nil
 	}
