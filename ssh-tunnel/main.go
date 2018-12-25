@@ -2,37 +2,33 @@ package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 	"sync"
 
-	"github.com/liyy7/sshtunnel"
 	"github.com/pkg/errors"
+
+	"github.com/liyy7/sshtunnel"
 )
 
 func main() {
-	var configFile string
-	flag.StringVar(&configFile, "c", "", "JSON config file")
-	flag.Parse()
-
-	if configFile == "" {
-		flag.Usage()
-		return
+	if len(os.Args) < 2 {
+		_, _ = fmt.Fprintln(os.Stderr, "Error: JSON config file required.")
 	}
+	configFile := os.Args[1]
 
 	buff, err := ioutil.ReadFile(configFile)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to read given config file: %s", configFile)
+		_, _ = fmt.Fprintf(os.Stderr, "failed to read given config file: %s\n", configFile)
 		return
 	}
 
 	var configs []Config
 	err = json.Unmarshal(buff, &configs)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to parse config file: %s", configFile)
+		_, _ = fmt.Fprintf(os.Stderr, "failed to parse config file: %s\n", configFile)
 		return
 	}
 
@@ -45,7 +41,7 @@ func main() {
 		go func(config Config) {
 			err := forward(config, logger)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %+v", err)
+				_, _ = fmt.Fprintf(os.Stderr, "Error: %+v\n", err)
 			}
 
 			sg.Done()

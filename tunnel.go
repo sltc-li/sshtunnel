@@ -139,6 +139,7 @@ func (t *tunnel) startAccept(localListener net.Listener, sshClient *ssh.Client) 
 				conn, err := sshClient.Dial("tcp", t.url)
 				if err != nil {
 					errCh <- errors.Wrap(err, "failed to dial "+t.url)
+					return
 				}
 				defer conn.Close()
 				errCh <- t.biCopy(conn, localConn)
