@@ -16,6 +16,7 @@ import (
 func main() {
 	if len(os.Args) < 2 {
 		_, _ = fmt.Fprintln(os.Stderr, "Error: JSON config file required.")
+		return
 	}
 	configFile := os.Args[1]
 
