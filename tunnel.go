@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"golang.org/x/crypto/ssh"
 )
 
 type Tunnel interface {
@@ -58,16 +57,10 @@ func (t *tunnel) Forward(url string, localURL string) error {
 		return err
 	}
 
-	sshClient, err := t.gateway.Dial()
-	if err != nil {
-		return errors.Wrap(err, "failed to dial gateway")
-	}
-	defer sshClient.Close()
-
 	errCh := make(chan error)
 
 	go func() {
-		errCh <- t.forward(sshClient)
+		errCh <- t.forward()
 	}()
 
 	sign := make(chan os.Signal)
@@ -101,7 +94,7 @@ func (t *tunnel) Stop() error {
 	}
 }
 
-func (t *tunnel) forward(sshClient *ssh.Client) error {
+func (t *tunnel) forward() error {
 	localListener, err := net.Listen("tcp", t.localURL)
 	if err != nil {
 		return errors.Wrap(err, "failed to listen "+t.localURL)
@@ -113,7 +106,7 @@ func (t *tunnel) forward(sshClient *ssh.Client) error {
 	errCh := make(chan error)
 
 	go func() {
-		err := t.startAccept(localListener, sshClient)
+		err := t.startAccept(localListener)
 		if err != nil {
 			errCh <- errors.Wrap(err, "failed to start to accept")
 		}
@@ -122,7 +115,7 @@ func (t *tunnel) forward(sshClient *ssh.Client) error {
 	return <-errCh
 }
 
-func (t *tunnel) startAccept(localListener net.Listener, sshClient *ssh.Client) error {
+func (t *tunnel) startAccept(localListener net.Listener) error {
 	errCh := make(chan error)
 
 	go func() {
@@ -136,12 +129,20 @@ func (t *tunnel) startAccept(localListener net.Listener, sshClient *ssh.Client) 
 			t.logger.Printf("accepted %s -> %s\n", t.localURL, localConn.RemoteAddr())
 			go func(localConn net.Conn) {
 				defer localConn.Close()
+
+				sshClient, err := t.gateway.Dial()
+				if err != nil {
+					errCh <- errors.Wrap(err, "failed to dial gateway")
+				}
+				defer sshClient.Close()
+
 				conn, err := sshClient.Dial("tcp", t.url)
 				if err != nil {
 					errCh <- errors.Wrap(err, "failed to dial "+t.url)
 					return
 				}
 				defer conn.Close()
+
 				errCh <- t.biCopy(conn, localConn)
 				t.logger.Printf("disconnected %s -> %s\n", t.localURL, localConn.RemoteAddr())
 			}(localConn)

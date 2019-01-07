@@ -11,18 +11,13 @@ A tool helps to do ssh forwarding.
 To install the library and command line program, use the following:
 
 ```bash
-go get -v github.com/liyy7/sshtunnel/...
+go get -u github.com/liyy7/sshtunnel/tunnel
 ```
 
 ## Usage
 
 ```bash
-$ ssh-tunnel -help
-Usage of ssh-tunnel:
-  -c string
-        JSON config file
-
-$ ssh-tunnel -c config.json
+$ tunnel config.json
 ```
 
-See [config.json.sample](ssh-tunnel/config.json.sample) for format of config file.
+See [config.json.sample](tunnel/config.json.sample) for format of config file.
