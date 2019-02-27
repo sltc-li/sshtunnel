@@ -9,20 +9,16 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-type Gateway interface {
-	Dial() (*ssh.Client, error)
+func NewGateway(url string, config *ssh.ClientConfig) *Gateway {
+	return &Gateway{url: url, config: config}
 }
 
-func NewGateway(url string, config *ssh.ClientConfig) Gateway {
-	return &gateway{url: url, config: config}
-}
-
-type gateway struct {
+type Gateway struct {
 	url    string
 	config *ssh.ClientConfig
 }
 
-func (g *gateway) Dial() (*ssh.Client, error) {
+func (g *Gateway) Dial() (*ssh.Client, error) {
 	return ssh.Dial("tcp", g.url, g.config)
 }
 

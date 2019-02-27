@@ -14,18 +14,12 @@ import (
 	"github.com/pkg/errors"
 )
 
-type Tunnel interface {
-	ForwardLocal(url string) error
-	Forward(url, localURL string) error
-	Stop() error
+func NewTunnel(gateway *Gateway, logger *log.Logger) *Tunnel {
+	return &Tunnel{gateway: gateway, logger: logger, quit: make(chan bool)}
 }
 
-func NewTunnel(gateway Gateway, logger *log.Logger) Tunnel {
-	return &tunnel{gateway: gateway, logger: logger, quit: make(chan bool)}
-}
-
-type tunnel struct {
-	gateway    Gateway
+type Tunnel struct {
+	gateway    *Gateway
 	logger     *log.Logger
 	mutex      sync.Mutex
 	forwarding bool
@@ -35,7 +29,7 @@ type tunnel struct {
 	localURL string
 }
 
-func (t *tunnel) ForwardLocal(url string) error {
+func (t *Tunnel) ForwardLocal(url string) error {
 	if !strings.Contains(url, ":") {
 		return errors.New("no port found in url: " + url)
 	}
@@ -43,7 +37,7 @@ func (t *tunnel) ForwardLocal(url string) error {
 	return t.Forward(url, "localhost:"+port)
 }
 
-func (t *tunnel) Forward(url string, localURL string) error {
+func (t *Tunnel) Forward(url string, localURL string) error {
 	if err := func() error {
 		t.mutex.Lock()
 		defer t.mutex.Unlock()
@@ -77,7 +71,7 @@ func (t *tunnel) Forward(url string, localURL string) error {
 	}
 }
 
-func (t *tunnel) Stop() error {
+func (t *Tunnel) Stop() error {
 	func() {
 		t.mutex.Lock()
 		defer t.mutex.Unlock()
@@ -94,7 +88,7 @@ func (t *tunnel) Stop() error {
 	}
 }
 
-func (t *tunnel) forward() error {
+func (t *Tunnel) forward() error {
 	localListener, err := net.Listen("tcp", t.localURL)
 	if err != nil {
 		return errors.Wrap(err, "failed to listen "+t.localURL)
@@ -115,7 +109,7 @@ func (t *tunnel) forward() error {
 	return <-errCh
 }
 
-func (t *tunnel) startAccept(localListener net.Listener) error {
+func (t *Tunnel) startAccept(localListener net.Listener) error {
 	errCh := make(chan error)
 
 	go func() {
@@ -152,7 +146,7 @@ func (t *tunnel) startAccept(localListener net.Listener) error {
 	return <-errCh
 }
 
-func (t *tunnel) biCopy(conn, localConn net.Conn) error {
+func (t *Tunnel) biCopy(conn, localConn net.Conn) error {
 	errCh := make(chan error)
 
 	go func() {
@@ -166,7 +160,7 @@ func (t *tunnel) biCopy(conn, localConn net.Conn) error {
 	return <-errCh
 }
 
-func (*tunnel) copy(dst io.Writer, src io.Reader) error {
+func (*Tunnel) copy(dst io.Writer, src io.Reader) error {
 	_, err := io.Copy(dst, src)
 	if err == io.EOF {
 		return nil
