@@ -1,4 +1,4 @@
-module github.com/liyy7/sshtunnel
+module github.com/li-go/sshtunnel
 
 require (
 	github.com/pkg/errors v0.8.0
