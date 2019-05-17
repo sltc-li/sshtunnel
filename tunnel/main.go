@@ -10,7 +10,7 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/liyy7/sshtunnel"
+	"github.com/li-go/sshtunnel"
 )
 
 func main() {
