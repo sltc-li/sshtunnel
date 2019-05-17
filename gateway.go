@@ -4,6 +4,7 @@ import (
 	"io/ioutil"
 	"os/user"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
@@ -49,5 +50,6 @@ func NewSSHClientConfig(privateKeyFile string, userName string) (*ssh.ClientConf
 		User:            userName,
 		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         2 * time.Second,
 	}, nil
 }

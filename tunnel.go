@@ -126,13 +126,14 @@ func (t *Tunnel) startAccept(localListener net.Listener) error {
 
 				sshClient, err := t.gateway.Dial()
 				if err != nil {
-					errCh <- errors.Wrap(err, "failed to dial gateway")
+					errCh <- errors.Wrapf(err, "failed to dial gateway: %s", t.gateway.url)
+					return
 				}
 				defer sshClient.Close()
 
 				conn, err := sshClient.Dial("tcp", t.url)
 				if err != nil {
-					errCh <- errors.Wrap(err, "failed to dial "+t.url)
+					errCh <- errors.Wrapf(err, "failed to dial: %s", t.url)
 					return
 				}
 				defer conn.Close()
