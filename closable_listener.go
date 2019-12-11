@@ -14,7 +14,8 @@ func closableListen(network, address string) (*closableListener, error) {
 }
 
 type closableListener struct {
-	l      net.Listener
+	l net.Listener
+
 	mux    sync.Mutex
 	closed bool
 }

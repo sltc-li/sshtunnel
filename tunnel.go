@@ -8,7 +8,6 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -66,12 +65,18 @@ func (t *tunnel) Forward(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	sshClient, err := t.dialGateway(ctx)
+	sshClient, err := newReconnectableSSHClient(t.gatewayHost, &ssh.ClientConfig{
+		User:            t.gatewayUser,
+		Auth:            t.auth,
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         2 * time.Second,
+	})
 	if err != nil {
 		t.log.Printf("failed to dial gateway %s: %v", t.gatewayHost, err)
 		return
 	}
 	defer sshClient.Close()
+	go sshClient.KeepAlive(ctx)
 
 	bindListener, err := closableListen("tcp", t.bindAddr)
 	if err != nil {
@@ -86,7 +91,7 @@ func (t *tunnel) Forward(ctx context.Context) {
 	t.startAccept(ctx, sshClient, bindListener)
 }
 
-func (t *tunnel) startAccept(ctx context.Context, sshClient *ssh.Client, bindListener *closableListener) {
+func (t *tunnel) startAccept(ctx context.Context, sshClient *reconnectableSSHClient, bindListener *closableListener) {
 	// close bind listener to stop accepting if ctx is canceled.
 	go func() {
 		<-ctx.Done()
@@ -107,22 +112,22 @@ func (t *tunnel) startAccept(ctx context.Context, sshClient *ssh.Client, bindLis
 		go func(bindConn net.Conn) {
 			defer t.log.Printf("disconnected %s -> %s", t.bindAddr, bindConn.RemoteAddr())
 
-			ctx, cancel := context.WithCancel(ctx)
+			connCtx, cancel := context.WithCancel(ctx)
 			defer cancel()
 			// ensure to close bind connection when copying finished.
 			go func() {
-				<-ctx.Done()
+				<-connCtx.Done()
 				bindConn.Close()
 			}()
 
-			dialConn, err := sshClient.Dial("tcp", t.dialAddr)
+			dialConn, err := sshClient.Dial(ctx, "tcp", t.dialAddr)
 			if err != nil {
 				t.log.Printf("failed to dial %s: %v", t.dialAddr, err)
 				return
 			}
 			// ensure to close dial connection when copying finished.
 			go func() {
-				<-ctx.Done()
+				<-connCtx.Done()
 				dialConn.Close()
 			}()
 
@@ -152,51 +157,4 @@ func (t *tunnel) biCopy(dialConn, bindConn net.Conn, shutdown func()) {
 	}()
 
 	wg.Wait()
-}
-
-func (t *tunnel) dialGateway(ctx context.Context) (*ssh.Client, error) {
-	client, err := ssh.Dial("tcp", t.gatewayHost, &ssh.ClientConfig{
-		User:            t.gatewayUser,
-		Auth:            t.auth,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         2 * time.Second,
-	})
-	if err != nil {
-		return nil, err
-	}
-	go t.keepAlive(ctx, client)
-	return client, nil
-}
-
-func (t *tunnel) keepAlive(ctx context.Context, client *ssh.Client) {
-	wait := make(chan error, 1)
-	go func() {
-		wait <- client.Wait()
-	}()
-
-	var aliveErrCount uint32
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-wait:
-			return
-		case <-ticker.C:
-			if atomic.LoadUint32(&aliveErrCount) > 1 {
-				t.log.Printf("failed to keep alive of %v", client.RemoteAddr())
-				client.Close()
-				return
-			}
-		case <-ctx.Done():
-			return
-		}
-
-		go func() {
-			_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
-			if err != nil {
-				atomic.AddUint32(&aliveErrCount, 1)
-			}
-		}()
-	}
 }
