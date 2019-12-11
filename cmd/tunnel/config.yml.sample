@@ -1,0 +1,7 @@
+key_files:
+  - ~/.ssh/id_rsa
+gateways:
+  - server: user@addr:22
+    tunnels:
+      - remoteAddr:80 -> 127.0.0.1:8080
+      - remoteAddr:443 -> 127.0.0.1:8081

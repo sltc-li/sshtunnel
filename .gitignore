@@ -1,3 +1,4 @@
 .idea
 bindata.go
 sshtunnel
+cmd/tunnel/config.yml

@@ -1,177 +1,202 @@
 package sshtunnel
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"io"
-	"log"
 	"net"
-	"os"
-	"os/signal"
 	"strings"
 	"sync"
-	"syscall"
+	"sync/atomic"
 	"time"
 
-	"github.com/pkg/errors"
+	"golang.org/x/crypto/ssh"
 )
 
-func NewTunnel(gateway *Gateway, logger *log.Logger) *Tunnel {
-	return &Tunnel{gateway: gateway, logger: logger, quit: make(chan bool)}
+type logger interface {
+	Printf(string, ...interface{})
 }
 
-type Tunnel struct {
-	gateway    *Gateway
-	logger     *log.Logger
-	mutex      sync.Mutex
-	forwarding bool
-	quit       chan bool
+type tunnel struct {
+	auth []ssh.AuthMethod
 
-	url      string
-	localURL string
+	gatewayUser string
+	gatewayHost string
+
+	dialAddr string
+	bindAddr string
+
+	log logger
 }
 
-func (t *Tunnel) ForwardLocal(url string) error {
-	if !strings.Contains(url, ":") {
-		return errors.New("no port found in url: " + url)
-	}
-	port := strings.Split(url, ":")[0]
-	return t.Forward(url, "localhost:"+port)
-}
-
-func (t *Tunnel) Forward(url string, localURL string) error {
-	if err := func() error {
-		t.mutex.Lock()
-		defer t.mutex.Unlock()
-		if t.forwarding {
-			return errors.Errorf("already forwarding at: %s:%s", t.localURL, t.url)
-		}
-		t.forwarding = true
-		t.url, t.localURL = url, localURL
-		return nil
-	}(); err != nil {
-		return err
-	}
-
-	errCh := make(chan error)
-
-	go func() {
-		errCh <- t.forward()
-	}()
-
-	sign := make(chan os.Signal)
-	signal.Notify(sign, syscall.SIGINT, syscall.SIGTERM, syscall.SIGKILL)
-
-	select {
-	case err := <-errCh:
-		t.forwarding = false
-		return err
-	case <-t.quit:
-		return nil
-	case <-sign:
-		return nil
-	}
-}
-
-func (t *Tunnel) Stop() error {
-	func() {
-		t.mutex.Lock()
-		defer t.mutex.Unlock()
-		t.forwarding = false
-		t.logger.Printf("stop forwarding from %s to %s ...\n", t.url, t.localURL)
-	}()
-
-	timeoutCh := time.After(time.Second)
-	select {
-	case <-timeoutCh:
-		return errors.New("timeout to stop")
-	case t.quit <- true:
-		return nil
-	}
-}
-
-func (t *Tunnel) forward() error {
-	localListener, err := net.Listen("tcp", t.localURL)
+func NewTunnel(
+	keyFiles []string,
+	gatewayStr string, // user@addr:port
+	tunnelStr string,  // remoteAddr:port -> 127.0.0.1:port
+	log logger,
+) (*tunnel, error) {
+	auth, err := parseKeyFiles(keyFiles)
 	if err != nil {
-		return errors.Wrap(err, "failed to listen "+t.localURL)
+		return nil, fmt.Errorf("parse key files: %w", err)
 	}
-	defer localListener.Close()
+	gatewayInfo := strings.Split(gatewayStr, "@")
+	if len(gatewayInfo) != 2 {
+		return nil, errors.New("invalid gateway format (e.g. user@addr:port)")
+	}
+	gatewayUser, gatewayHost := gatewayInfo[0], gatewayInfo[1]
+	if _, _, err := net.SplitHostPort(gatewayHost); err != nil {
+		gatewayHost += ":22"
+	}
+	tunnelInfo := strings.Split(tunnelStr, " -> ")
+	if len(tunnelInfo) != 2 {
+		return nil, errors.New("invalid tunnel format (e.g. remoteAddr:port -> 127.0.0.1:port)")
+	}
+	return &tunnel{
+		auth:        auth,
+		gatewayUser: gatewayUser,
+		gatewayHost: gatewayHost,
+		dialAddr:    tunnelInfo[0],
+		bindAddr:    tunnelInfo[1],
+		log:         log,
+	}, nil
+}
 
-	t.logger.Printf("start forwarding from %s to %s ...\n", t.url, t.localURL)
+func (t *tunnel) Forward(ctx context.Context) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
-	errCh := make(chan error)
+	sshClient, err := t.dialGateway(ctx)
+	if err != nil {
+		t.log.Printf("failed to dial gateway %s: %v", t.gatewayHost, err)
+		return
+	}
+	defer sshClient.Close()
 
+	bindListener, err := closableListen("tcp", t.bindAddr)
+	if err != nil {
+		t.log.Printf("failed to listen %s: %v", t.bindAddr, err)
+		return
+	}
+	defer bindListener.Close()
+
+	t.log.Printf("start forwarding: %s -> %s", t.dialAddr, t.bindAddr)
+	defer t.log.Printf("stop forwarding: %s -> %s", t.dialAddr, t.bindAddr)
+
+	t.startAccept(ctx, sshClient, bindListener)
+}
+
+func (t *tunnel) startAccept(ctx context.Context, sshClient *ssh.Client, bindListener *closableListener) {
+	// close bind listener to stop accepting if ctx is canceled.
 	go func() {
-		err := t.startAccept(localListener)
+		<-ctx.Done()
+		bindListener.Close()
+	}()
+
+	for {
+		bindConn, err := bindListener.Accept()
+		if bindListener.IsClosed() {
+			break
+		}
 		if err != nil {
-			errCh <- errors.Wrap(err, "failed to start to accept")
+			t.log.Printf("failed to accept %s: %v", t.bindAddr, err)
+			break
 		}
-	}()
 
-	return <-errCh
-}
+		t.log.Printf("accepted %s -> %s", t.bindAddr, bindConn.RemoteAddr())
+		go func(bindConn net.Conn) {
+			defer t.log.Printf("disconnected %s -> %s", t.bindAddr, bindConn.RemoteAddr())
 
-func (t *Tunnel) startAccept(localListener net.Listener) error {
-	errCh := make(chan error)
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			// ensure to close bind connection when copying finished.
+			go func() {
+				<-ctx.Done()
+				bindConn.Close()
+			}()
 
-	go func() {
-		for {
-			localConn, err := localListener.Accept()
+			dialConn, err := sshClient.Dial("tcp", t.dialAddr)
 			if err != nil {
-				errCh <- errors.Wrap(err, "failed to accept "+t.localURL)
-				break
+				t.log.Printf("failed to dial %s: %v", t.dialAddr, err)
+				return
 			}
+			// ensure to close dial connection when copying finished.
+			go func() {
+				<-ctx.Done()
+				dialConn.Close()
+			}()
 
-			t.logger.Printf("accepted %s -> %s\n", t.localURL, localConn.RemoteAddr())
-			go func(localConn net.Conn) {
-				defer localConn.Close()
+			t.biCopy(dialConn, bindConn, cancel)
+		}(bindConn)
+	}
+}
 
-				sshClient, err := t.gateway.Dial()
-				if err != nil {
-					errCh <- errors.Wrapf(err, "failed to dial gateway: %s", t.gateway.url)
-					return
-				}
-				defer sshClient.Close()
+func (t *tunnel) biCopy(dialConn, bindConn net.Conn, shutdown func()) {
+	var wg sync.WaitGroup
+	wg.Add(2)
 
-				conn, err := sshClient.Dial("tcp", t.url)
-				if err != nil {
-					errCh <- errors.Wrapf(err, "failed to dial: %s", t.url)
-					return
-				}
-				defer conn.Close()
-
-				errCh <- t.biCopy(conn, localConn)
-				t.logger.Printf("disconnected %s -> %s\n", t.localURL, localConn.RemoteAddr())
-			}(localConn)
+	go func() {
+		defer wg.Done()
+		defer shutdown()
+		if _, err := io.Copy(dialConn, bindConn); err != nil {
+			t.log.Printf("failed to copy %s -> %s: %v", t.dialAddr, t.bindAddr, err)
 		}
 	}()
 
-	return <-errCh
-}
-
-func (t *Tunnel) biCopy(conn, localConn net.Conn) error {
-	errCh := make(chan error)
-
 	go func() {
-		errCh <- errors.Wrap(t.copy(conn, localConn), "failed to copy from remote to local")
-	}()
-
-	go func() {
-		errCh <- errors.Wrap(t.copy(localConn, conn), "failed to copy from local to remote")
-	}()
-
-	return <-errCh
-}
-
-func (*Tunnel) copy(dst io.Writer, src io.Reader) error {
-	_, err := io.Copy(dst, src)
-	if err == io.EOF {
-		return nil
-	}
-	if opErr, ok := err.(*net.OpError); ok {
-		if sysErr, ok := opErr.Err.(*os.SyscallError); ok {
-			if sysErr.Err == syscall.ECONNRESET {
-				return nil
-			}
+		defer wg.Done()
+		defer shutdown()
+		if _, err := io.Copy(bindConn, dialConn); err != nil {
+			t.log.Printf("failed to copy %s -> %s: %v", t.bindAddr, t.dialAddr, err)
 		}
+	}()
+
+	wg.Wait()
+}
+
+func (t *tunnel) dialGateway(ctx context.Context) (*ssh.Client, error) {
+	client, err := ssh.Dial("tcp", t.gatewayHost, &ssh.ClientConfig{
+		User:            t.gatewayUser,
+		Auth:            t.auth,
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         2 * time.Second,
+	})
+	if err != nil {
+		return nil, err
 	}
-	return err
+	go t.keepAlive(ctx, client)
+	return client, nil
+}
+
+func (t *tunnel) keepAlive(ctx context.Context, client *ssh.Client) {
+	wait := make(chan error, 1)
+	go func() {
+		wait <- client.Wait()
+	}()
+
+	var aliveErrCount uint32
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-wait:
+			return
+		case <-ticker.C:
+			if atomic.LoadUint32(&aliveErrCount) > 1 {
+				t.log.Printf("failed to keep alive of %v", client.RemoteAddr())
+				client.Close()
+				return
+			}
+		case <-ctx.Done():
+			return
+		}
+
+		go func() {
+			_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
+			if err != nil {
+				atomic.AddUint32(&aliveErrCount, 1)
+			}
+		}()
+	}
 }
