@@ -16,7 +16,7 @@ func closableListen(network, address string) (*closableListener, error) {
 type closableListener struct {
 	l net.Listener
 
-	mux    sync.Mutex
+	mux    sync.RWMutex
 	closed bool
 }
 
@@ -36,7 +36,7 @@ func (l *closableListener) Addr() net.Addr {
 }
 
 func (l *closableListener) IsClosed() bool {
-	l.mux.Lock()
-	defer l.mux.Unlock()
+	l.mux.RLock()
+	defer l.mux.RUnlock()
 	return l.closed
 }
