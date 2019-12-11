@@ -1,5 +1,7 @@
 # sshtunnel
 
+[![Actions Status](https://github.com/li-go/sshtunnel/workflows/Go/badge.svg)](https://github.com/li-go/sshtunnel/actions)
+
 A tool helps to do ssh forwarding.
 
 ## Features
