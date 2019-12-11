@@ -63,7 +63,6 @@ func (c *reconnectableSSHClient) KeepAlive(ctx context.Context) {
 				return
 			}
 		case <-ctx.Done():
-			log.Print("done")
 			return
 		}
 
