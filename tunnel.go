@@ -47,7 +47,7 @@ func NewTunnel(
 	if _, _, err := net.SplitHostPort(gatewayHost); err != nil {
 		gatewayHost += ":22"
 	}
-	tunnelInfo := strings.Split(tunnelStr, " -> ")
+	tunnelInfo := strings.Split(tunnelStr, "->")
 	if len(tunnelInfo) != 2 {
 		return nil, errors.New("invalid tunnel format (e.g. remoteAddr:port -> 127.0.0.1:port)")
 	}
@@ -55,8 +55,8 @@ func NewTunnel(
 		auth:        auth,
 		gatewayUser: gatewayUser,
 		gatewayHost: gatewayHost,
-		dialAddr:    tunnelInfo[0],
-		bindAddr:    tunnelInfo[1],
+		dialAddr:    strings.TrimSpace(tunnelInfo[0]),
+		bindAddr:    strings.TrimSpace(tunnelInfo[1]),
 		log:         log,
 	}, nil
 }
