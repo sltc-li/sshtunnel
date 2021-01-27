@@ -2,11 +2,30 @@ package sshtunnel
 
 import (
 	"net"
+	"os"
+	"regexp"
 	"sync"
 )
 
-func closableListen(network, address string) (*closableListener, error) {
-	l, err := net.Listen(network, address)
+var (
+	tcpAddressPattern = regexp.MustCompile(`(.+\.)+\w+:\d+`)
+)
+
+func closableListen(address string) (*closableListener, error) {
+	var (
+		l   net.Listener
+		err error
+	)
+	if tcpAddressPattern.MatchString(address) {
+		l, err = net.Listen("tcp", address)
+	} else {
+		// try unix socket connection
+		// remove sock file is already exists
+		if _, err := os.Stat(address); err == nil {
+			_ = os.Remove(address)
+		}
+		l, err = net.Listen("unix", address)
+	}
 	if err != nil {
 		return nil, err
 	}

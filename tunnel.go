@@ -78,7 +78,7 @@ func (t *tunnel) Forward(ctx context.Context) {
 	defer sshClient.Close()
 	go sshClient.KeepAlive(ctx)
 
-	bindListener, err := closableListen("tcp", t.bindAddr)
+	bindListener, err := closableListen(t.bindAddr)
 	if err != nil {
 		t.log.Printf("failed to listen %s: %v", t.bindAddr, err)
 		return
