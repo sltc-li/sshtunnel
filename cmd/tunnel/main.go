@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 
 	"github.com/go-yaml/yaml"
@@ -13,12 +15,7 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		log.Fatal("config file required")
-	}
-	configFile := os.Args[1]
-
-	file, err := os.Open(configFile)
+	file, err := openConfigFile()
 	if err != nil {
 		log.Fatalf("failed to open config file: %v", err)
 	}
@@ -67,4 +64,29 @@ type YamlConfig struct {
 		Server  string   `yaml:"server"`
 		Tunnels []string `yaml:"tunnels"`
 	} `yaml:"gateways"`
+}
+
+func openConfigFile() (*os.File, error) {
+	if len(os.Args) > 2 {
+		return nil, fmt.Errorf("too many arguments - %v", os.Args[1:])
+	}
+
+	if len(os.Args) == 2 {
+		return os.Open(os.Args[1])
+	}
+
+	file, err := os.Open(".tunnel.yml")
+	if err == nil {
+		return file, nil
+	}
+
+	if !os.IsNotExist(err) {
+		return nil, err
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	return os.Open(filepath.Join(home, ".tunnel.yml"))
 }
