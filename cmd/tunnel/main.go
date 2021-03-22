@@ -17,7 +17,7 @@ import (
 
 func main() {
 	rLimit := syscall.Rlimit{
-		Cur: 65536,
+		Cur: 65536,          // 2^16
 		Max: ^uint64(0) / 2, // max int64 = 2^63 - 1
 	}
 	if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rLimit); err != nil {
