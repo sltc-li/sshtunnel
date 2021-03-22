@@ -61,7 +61,7 @@ func NewTunnel(
 	}, nil
 }
 
-func (t *tunnel) Forward(ctx context.Context) {
+func (t *tunnel) Forward(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -72,16 +72,14 @@ func (t *tunnel) Forward(ctx context.Context) {
 		Timeout:         2 * time.Second,
 	})
 	if err != nil {
-		t.log.Printf("failed to dial gateway %s: %v", t.gatewayHost, err)
-		return
+		return fmt.Errorf("dial gateway %s: %w", t.gatewayHost, err)
 	}
 	defer sshClient.Close()
 	go sshClient.KeepAlive(ctx)
 
 	bindListener, err := closableListen(t.bindAddr)
 	if err != nil {
-		t.log.Printf("failed to listen %s: %v", t.bindAddr, err)
-		return
+		return fmt.Errorf("listen to bind address - %s: %w", t.bindAddr, err)
 	}
 	defer bindListener.Close()
 
@@ -89,6 +87,7 @@ func (t *tunnel) Forward(ctx context.Context) {
 	defer t.log.Printf("stop forwarding: %s -> %s", t.dialAddr, t.bindAddr)
 
 	t.startAccept(ctx, sshClient, bindListener)
+	return nil
 }
 
 func (t *tunnel) startAccept(ctx context.Context, sshClient *reconnectableSSHClient, bindListener *closableListener) {

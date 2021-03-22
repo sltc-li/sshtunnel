@@ -29,16 +29,8 @@ func main() {
 
 	logger := log.New(os.Stdout, "[sshtunnel] ", log.Flags())
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// handle SIGINT to stop all tunnels.
-	go func() {
-		defer cancel()
-		signCh := make(chan os.Signal, 1)
-		signal.Notify(signCh, os.Interrupt)
-		logger.Printf("received %v, shutdown!", <-signCh)
-	}()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
+	defer stop()
 
 	var wg sync.WaitGroup
 	for _, g := range config.Gateways {
@@ -49,9 +41,13 @@ func main() {
 				tunnel, err := sshtunnel.NewTunnel(keyFiles, gatewayStr, tunnelStr, logger)
 				if err != nil {
 					log.Printf("failed to init tunnel - %s: %v", t, err)
+					stop()
 					return
 				}
-				tunnel.Forward(ctx)
+				if err := tunnel.Forward(ctx); err != nil {
+					log.Printf("failed to forward tunnel - %s: %v", t, err)
+					stop()
+				}
 			}(config.KeyFiles, g.Server, t)
 		}
 	}
