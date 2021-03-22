@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"sync"
+	"syscall"
 
 	"github.com/go-yaml/yaml"
 
@@ -15,6 +16,14 @@ import (
 )
 
 func main() {
+	rLimit := syscall.Rlimit{
+		Cur: 65536,
+		Max: ^uint64(0) / 2, // max int64 = 2^63 - 1
+	}
+	if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rLimit); err != nil {
+		log.Fatalf("failed to set ulimit: %v", err)
+	}
+
 	file, err := openConfigFile()
 	if err != nil {
 		log.Fatalf("failed to open config file: %v", err)
