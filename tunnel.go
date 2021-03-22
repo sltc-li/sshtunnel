@@ -142,17 +142,17 @@ func (t *tunnel) biCopy(dialConn, bindConn net.Conn, shutdown func()) {
 
 	go func() {
 		defer wg.Done()
-		defer shutdown()
 		if _, err := io.Copy(dialConn, bindConn); err != nil {
 			t.log.Printf("failed to copy %s -> %s: %v", t.dialAddr, t.bindAddr, err)
+			shutdown()
 		}
 	}()
 
 	go func() {
 		defer wg.Done()
-		defer shutdown()
 		if _, err := io.Copy(bindConn, dialConn); err != nil {
 			t.log.Printf("failed to copy %s -> %s: %v", t.bindAddr, t.dialAddr, err)
+			shutdown()
 		}
 	}()
 
