@@ -11,16 +11,21 @@ import (
 	"syscall"
 
 	"github.com/go-yaml/yaml"
+	"github.com/li-go/sshtunnel/syscallhelper"
 
 	"github.com/li-go/sshtunnel"
 )
 
 func main() {
-	rLimit := syscall.Rlimit{
-		Cur: 65536,          // 2^16
-		Max: ^uint64(0) / 2, // max int64 = 2^63 - 1
+	var rLimit syscall.Rlimit
+	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit); err != nil {
+		log.Fatalf("failed to set ulimit: %v", err)
 	}
-	if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &rLimit); err != nil {
+	newRLimit := syscall.Rlimit{
+		Cur: syscallhelper.RlimitMax(rLimit),
+		Max: syscallhelper.RlimitMax(rLimit),
+	}
+	if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &newRLimit); err != nil {
 		log.Fatalf("failed to set ulimit: %v", err)
 	}
 
