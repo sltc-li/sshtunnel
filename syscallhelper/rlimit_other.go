@@ -1,6 +1,6 @@
 // +build !darwin,!freebsd
 
-package main
+package syscallhelper
 
 import "syscall"
 
