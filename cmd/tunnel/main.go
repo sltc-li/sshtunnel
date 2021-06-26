@@ -35,7 +35,7 @@ func main() {
 	}
 	defer file.Close()
 
-	var config YamlConfig
+	var config sshtunnel.YamlConfig
 	if err := yaml.NewDecoder(file).Decode(&config); err != nil {
 		file.Close()
 		log.Fatalf("failed to decode config file: %v", err)
@@ -50,7 +50,7 @@ func main() {
 	for _, g := range config.Gateways {
 		for _, t := range g.Tunnels {
 			wg.Add(1)
-			go func(keyFiles []string, gatewayStr string, tunnelStr string) {
+			go func(keyFiles []sshtunnel.KeyFile, gatewayStr string, tunnelStr string) {
 				defer wg.Done()
 				tunnel, err := sshtunnel.NewTunnel(keyFiles, gatewayStr, tunnelStr, logger)
 				if err != nil {
@@ -66,14 +66,6 @@ func main() {
 		}
 	}
 	wg.Wait()
-}
-
-type YamlConfig struct {
-	KeyFiles []string `yaml:"key_files"`
-	Gateways []struct {
-		Server  string   `yaml:"server"`
-		Tunnels []string `yaml:"tunnels"`
-	} `yaml:"gateways"`
 }
 
 func openConfigFile() (*os.File, error) {

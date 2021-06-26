@@ -30,9 +30,9 @@ type tunnel struct {
 }
 
 func NewTunnel(
-	keyFiles []string,
+	keyFiles []KeyFile,
 	gatewayStr string, // user@addr:port
-	tunnelStr string,  // remoteAddr:port -> 127.0.0.1:port
+	tunnelStr string, // remoteAddr:port -> 127.0.0.1:port
 	log logger,
 ) (*tunnel, error) {
 	auth, err := parseKeyFiles(keyFiles)
