@@ -10,7 +10,6 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/go-yaml/yaml"
 	"github.com/li-go/sshtunnel/syscallhelper"
 
 	"github.com/li-go/sshtunnel"
@@ -35,10 +34,9 @@ func main() {
 	}
 	defer file.Close()
 
-	var config sshtunnel.YamlConfig
-	if err := yaml.NewDecoder(file).Decode(&config); err != nil {
-		file.Close()
-		log.Fatalf("failed to decode config file: %v", err)
+	config, err := sshtunnel.LoadConfigFile(file)
+	if err != nil {
+		log.Fatalf("failed to load config file: %v", err)
 	}
 
 	logger := log.New(os.Stdout, "[sshtunnel] ", log.Flags())

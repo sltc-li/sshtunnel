@@ -1,6 +1,12 @@
 package sshtunnel
 
-type YamlConfig struct {
+import (
+	"os"
+
+	"github.com/go-yaml/yaml"
+)
+
+type YAMLConfig struct {
 	KeyFiles []KeyFile `yaml:"key_files"`
 	Gateways []struct {
 		Server  string   `yaml:"server"`
@@ -29,4 +35,12 @@ func (f *KeyFile) UnmarshalYAML(unmarshal func(interface{}) error) error {
 		}
 	}
 	return nil
+}
+
+func LoadConfigFile(file *os.File) (*YAMLConfig, error) {
+	var config YAMLConfig
+	if err := yaml.NewDecoder(file).Decode(&config); err != nil {
+		return nil, err
+	}
+	return &config, nil
 }
