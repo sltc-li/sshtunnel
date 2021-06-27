@@ -1,5 +1,7 @@
 key_files:
   - ~/.ssh/id_rsa
+  - path: ~/.ssh/id_rsa_enc
+    passphrase: secret
 gateways:
   - server: user@addr:22
     tunnels:
