@@ -9,8 +9,9 @@ import (
 type YAMLConfig struct {
 	KeyFiles []KeyFile `yaml:"key_files"`
 	Gateways []struct {
-		Server  string   `yaml:"server"`
-		Tunnels []string `yaml:"tunnels"`
+		Server       string   `yaml:"server"`
+		ProxyCommand string   `yaml:"proxy_command"`
+		Tunnels      []string `yaml:"tunnels"`
 	} `yaml:"gateways"`
 }
 type KeyFile struct {

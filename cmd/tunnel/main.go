@@ -10,9 +10,8 @@ import (
 	"sync"
 	"syscall"
 
-	"github.com/li-go/sshtunnel/syscallhelper"
-
 	"github.com/li-go/sshtunnel"
+	"github.com/li-go/sshtunnel/syscallhelper"
 )
 
 func main() {
@@ -48,9 +47,9 @@ func main() {
 	for _, g := range config.Gateways {
 		for _, t := range g.Tunnels {
 			wg.Add(1)
-			go func(keyFiles []sshtunnel.KeyFile, gatewayStr string, tunnelStr string) {
+			go func(keyFiles []sshtunnel.KeyFile, gatewayStr string, gatewayProxyCommand string, tunnelStr string) {
 				defer wg.Done()
-				tunnel, err := sshtunnel.NewTunnel(keyFiles, gatewayStr, tunnelStr, logger)
+				tunnel, err := sshtunnel.NewTunnel(keyFiles, gatewayStr, gatewayProxyCommand, tunnelStr, logger)
 				if err != nil {
 					log.Printf("failed to init tunnel - %s: %v", t, err)
 					stop()
@@ -60,7 +59,7 @@ func main() {
 					log.Printf("failed to forward tunnel - %s: %v", t, err)
 					stop()
 				}
-			}(config.KeyFiles, g.Server, t)
+			}(config.KeyFiles, g.Server, g.ProxyCommand, t)
 		}
 	}
 	wg.Wait()

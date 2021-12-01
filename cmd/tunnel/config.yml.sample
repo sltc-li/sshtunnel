@@ -4,6 +4,7 @@ key_files:
     passphrase: secret
 gateways:
   - server: user@addr:22
+    proxy_command: aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters 'portNumber=%p'
     tunnels:
       - remoteAddr:80 -> 127.0.0.1:8080
       - remoteAddr:443 -> 127.0.0.1:8081

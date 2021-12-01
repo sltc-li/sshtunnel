@@ -20,8 +20,9 @@ type logger interface {
 type tunnel struct {
 	auth []ssh.AuthMethod
 
-	gatewayUser string
-	gatewayHost string
+	gatewayUser         string
+	gatewayHost         string
+	gatewayProxyCommand string
 
 	dialAddr string
 	bindAddr string
@@ -32,6 +33,7 @@ type tunnel struct {
 func NewTunnel(
 	keyFiles []KeyFile,
 	gatewayStr string, // user@addr:port
+	gatewayProxyCommand string,
 	tunnelStr string, // remoteAddr:port -> 127.0.0.1:port
 	log logger,
 ) (*tunnel, error) {
@@ -52,12 +54,13 @@ func NewTunnel(
 		return nil, errors.New("invalid tunnel format (e.g. remoteAddr:port -> 127.0.0.1:port)")
 	}
 	return &tunnel{
-		auth:        auth,
-		gatewayUser: gatewayUser,
-		gatewayHost: gatewayHost,
-		dialAddr:    strings.TrimSpace(tunnelInfo[0]),
-		bindAddr:    strings.TrimSpace(tunnelInfo[1]),
-		log:         log,
+		auth:                auth,
+		gatewayUser:         gatewayUser,
+		gatewayHost:         gatewayHost,
+		gatewayProxyCommand: gatewayProxyCommand,
+		dialAddr:            strings.TrimSpace(tunnelInfo[0]),
+		bindAddr:            strings.TrimSpace(tunnelInfo[1]),
+		log:                 log,
 	}, nil
 }
 
@@ -65,12 +68,7 @@ func (t *tunnel) Forward(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	sshClient, err := newReconnectableSSHClient(t.gatewayHost, &ssh.ClientConfig{
-		User:            t.gatewayUser,
-		Auth:            t.auth,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         2 * time.Second,
-	})
+	sshClient, err := newReconnectableSSHClient(t.dialer())
 	if err != nil {
 		return fmt.Errorf("dial gateway %s: %w", t.gatewayHost, err)
 	}
@@ -88,6 +86,19 @@ func (t *tunnel) Forward(ctx context.Context) error {
 
 	t.startAccept(ctx, sshClient, bindListener)
 	return nil
+}
+
+func (t *tunnel) dialer() Dialer {
+	config := &ssh.ClientConfig{
+		User:            t.gatewayUser,
+		Auth:            t.auth,
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         2 * time.Second,
+	}
+	if t.gatewayProxyCommand == "" {
+		return newTCPDialer(t.gatewayHost, config)
+	}
+	return newProxyDialer(t.gatewayHost, config, t.gatewayProxyCommand)
 }
 
 func (t *tunnel) startAccept(ctx context.Context, sshClient *reconnectableSSHClient, bindListener *closableListener) {
