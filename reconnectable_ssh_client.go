@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -60,6 +61,7 @@ func newProxyDialer(host string, config *ssh.ClientConfig, proxyCommand string) 
 func (d *proxyDialer) Dial() (sshClientWrapper, error) {
 	clientConn, proxyConn := net.Pipe()
 	cmd := exec.Command("bash", "-c", d.proxyCommand)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	cmd.Stdin = proxyConn
 	cmd.Stdout = proxyConn
@@ -89,7 +91,7 @@ type proxySSHClient struct {
 
 func (c proxySSHClient) Close() error {
 	err := c.Client.Close()
-	_ = c.cmd.Process.Kill()
+	_ = syscall.Kill(-c.cmd.Process.Pid, syscall.SIGKILL)
 	return err
 }
 
