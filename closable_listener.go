@@ -1,8 +1,10 @@
 package sshtunnel
 
 import (
+	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sync"
 )
@@ -23,6 +25,9 @@ func closableListen(address string) (*closableListener, error) {
 		// remove sock file is already exists
 		if _, err := os.Stat(address); err == nil {
 			_ = os.Remove(address)
+		}
+		if err := mkdirIfNeeded(address); err != nil {
+			return nil, fmt.Errorf("mkdir: %w", err)
 		}
 		l, err = net.Listen("unix", address)
 	}
@@ -58,4 +63,9 @@ func (l *closableListener) IsClosed() bool {
 	l.mux.RLock()
 	defer l.mux.RUnlock()
 	return l.closed
+}
+
+func mkdirIfNeeded(addr string) error {
+	dir, _ := filepath.Split(addr)
+	return os.MkdirAll(dir, 0700)
 }
