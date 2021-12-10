@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -10,11 +11,55 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/sevlyar/go-daemon"
+
 	"github.com/li-go/sshtunnel"
 	"github.com/li-go/sshtunnel/syscallhelper"
 )
 
+var (
+	daemonize bool
+	kill      bool
+)
+
+func init() {
+	flag.BoolVar(&daemonize, "d", false, "Daemonize tunnel")
+	flag.BoolVar(&kill, "kill", false, "Kill tunnel daemon process")
+	flag.Parse()
+}
+
 func main() {
+	dCtx := daemon.Context{
+		PidFileName: ".tunnel.pid",
+		LogFileName: ".tunnel.log",
+	}
+	if kill {
+		if err := killDaemon(dCtx); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
+	if !daemonize {
+		_main()
+		return
+	}
+
+	_ = killDaemon(dCtx)
+	p, err := dCtx.Reborn()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if p != nil {
+		fmt.Printf("daemon process started - %d\n", p.Pid)
+		return
+	}
+	defer dCtx.Release()
+
+	_main()
+}
+
+func _main() {
 	var rLimit syscall.Rlimit
 	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit); err != nil {
 		log.Fatalf("failed to set ulimit: %v", err)
@@ -66,12 +111,12 @@ func main() {
 }
 
 func openConfigFile() (*os.File, error) {
-	if len(os.Args) > 2 {
-		return nil, fmt.Errorf("too many arguments - %v", os.Args[1:])
+	if len(flag.Args()) > 2 {
+		return nil, fmt.Errorf("too many arguments - %v", flag.Args()[1:])
 	}
 
-	if len(os.Args) == 2 {
-		return os.Open(os.Args[1])
+	if flag.NArg() == 2 {
+		return os.Open(flag.Arg(1))
 	}
 
 	file, err := os.Open(".tunnel.yml")
@@ -88,4 +133,16 @@ func openConfigFile() (*os.File, error) {
 		return nil, err
 	}
 	return os.Open(filepath.Join(home, ".tunnel.yml"))
+}
+
+func killDaemon(dCtx daemon.Context) error {
+	p, err := dCtx.Search()
+	if err != nil {
+		return fmt.Errorf("search for daemon process: %w", err)
+	}
+	fmt.Printf("killing daemon process - %d\n", p.Pid)
+	if err := p.Kill(); err != nil {
+		return fmt.Errorf("kill daemon process: %w", err)
+	}
+	return os.Remove(dCtx.PidFileName)
 }
