@@ -32,7 +32,7 @@ VERSION:
 COMMANDS:
    status   show daemon process status
    kill     kill daemon process
-   log      show daemon process log
+   logs     show daemon process logs
    help, h  Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:

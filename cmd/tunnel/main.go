@@ -46,10 +46,10 @@ func setupCli() {
 				},
 			},
 			&cli.Command{
-				Name:  "log",
-				Usage: "show daemon process log",
+				Name:  "logs",
+				Usage: "show daemon process logs",
 				Action: func(c *cli.Context) error {
-					return logDaemon(dCtx(c))
+					return tailDaemonLogs(dCtx(c))
 				},
 			},
 		},
@@ -210,7 +210,7 @@ func killDaemon(dCtx *daemon.Context) error {
 	return os.Remove(dCtx.PidFileName)
 }
 
-func logDaemon(dCtx *daemon.Context) error {
+func tailDaemonLogs(dCtx *daemon.Context) error {
 	ctx := context.Background()
 	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, os.Kill)
 	defer cancel()
