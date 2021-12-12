@@ -30,9 +30,9 @@ VERSION:
    0.9.0
 
 COMMANDS:
-   status   
-   kill     
-   log      
+   status   show daemon process status
+   kill     kill daemon process
+   log      show daemon process log
    help, h  Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
