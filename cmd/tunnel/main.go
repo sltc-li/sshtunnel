@@ -32,22 +32,22 @@ func setupCli() {
 		Version: "0.9.0",
 		Commands: cli.Commands{
 			&cli.Command{
-				Name:        "status",
-				Description: "show daemon process status",
+				Name:  "status",
+				Usage: "show daemon process status",
 				Action: func(c *cli.Context) error {
 					return printDaemonStatus(dCtx(c))
 				},
 			},
 			&cli.Command{
-				Name:        "kill",
-				Description: "kill daemon process",
+				Name:  "kill",
+				Usage: "kill daemon process",
 				Action: func(c *cli.Context) error {
 					return killDaemon(dCtx(c))
 				},
 			},
 			&cli.Command{
-				Name:        "log",
-				Description: "show daemon process log",
+				Name:  "log",
+				Usage: "show daemon process log",
 				Action: func(c *cli.Context) error {
 					return logDaemon(dCtx(c))
 				},
