@@ -2,85 +2,132 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"sync"
 	"syscall"
 
 	"github.com/sevlyar/go-daemon"
+	"github.com/urfave/cli/v2"
 
 	"github.com/li-go/sshtunnel"
 	"github.com/li-go/sshtunnel/syscallhelper"
 )
 
-var (
-	daemonize bool
-	kill      bool
-)
+func setupCli() {
+	dCtx := func(c *cli.Context) *daemon.Context {
+		return &daemon.Context{
+			PidFileName: c.String("pidfile"),
+			LogFileName: c.String("logfile"),
+		}
+	}
 
-func init() {
-	flag.BoolVar(&daemonize, "d", false, "Daemonize tunnel")
-	flag.BoolVar(&kill, "kill", false, "Kill tunnel daemon process")
-	flag.Parse()
+	app := cli.App{
+		Name:    "tunnel",
+		Usage:   "a tool helps to do ssh forwarding",
+		Version: "0.9.0",
+		Commands: cli.Commands{
+			&cli.Command{
+				Name:        "status",
+				Description: "show daemon process status",
+				Action: func(c *cli.Context) error {
+					return printDaemonStatus(dCtx(c))
+				},
+			},
+			&cli.Command{
+				Name:        "kill",
+				Description: "kill daemon process",
+				Action: func(c *cli.Context) error {
+					return killDaemon(dCtx(c))
+				},
+			},
+			&cli.Command{
+				Name:        "log",
+				Description: "show daemon process log",
+				Action: func(c *cli.Context) error {
+					return logDaemon(dCtx(c))
+				},
+			},
+		},
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "config",
+				Aliases: []string{"c"},
+				Usage:   "specify a yaml config file, --config > ./.tunnel.yml > ~/.tunnel.yml",
+				Value:   "./.tunnel.yml",
+			},
+			&cli.BoolFlag{
+				Name:    "daemon",
+				Aliases: []string{"d"},
+				Usage:   "daemonize tunnel",
+				Value:   false,
+			},
+			&cli.StringFlag{
+				Name:  "pidfile",
+				Usage: "specify pid file for daemon process",
+				Value: "./.tunnel.pid",
+			},
+			&cli.StringFlag{
+				Name:  "logfile",
+				Usage: "specify log file for daemon process",
+				Value: "./.tunnel.log",
+			},
+		},
+		Action: func(c *cli.Context) error {
+			if !c.Bool("daemon") {
+				return start(c.String("config"))
+			}
+
+			_ = killDaemon(dCtx(c))
+			p, err := dCtx(c).Reborn()
+			if err != nil {
+				return fmt.Errorf("reborn daemon process: %w", err)
+			}
+			if p != nil {
+				fmt.Printf("daemon process(pid: %d) started\n", p.Pid)
+				return nil
+			}
+			defer dCtx(c).Release()
+
+			return start(c.String("config"))
+		},
+	}
+
+	if err := app.Run(os.Args); err != nil {
+		log.Fatal(err)
+	}
 }
 
 func main() {
-	dCtx := daemon.Context{
-		PidFileName: ".tunnel.pid",
-		LogFileName: ".tunnel.log",
-	}
-	if kill {
-		if err := killDaemon(dCtx); err != nil {
-			log.Fatal(err)
-		}
-		return
-	}
-
-	if !daemonize {
-		_main()
-		return
-	}
-
-	_ = killDaemon(dCtx)
-	p, err := dCtx.Reborn()
-	if err != nil {
-		log.Fatal(err)
-	}
-	if p != nil {
-		fmt.Printf("daemon process started - %d\n", p.Pid)
-		return
-	}
-	defer dCtx.Release()
-
-	_main()
+	setupCli()
 }
 
-func _main() {
+func start(configFile string) error {
 	var rLimit syscall.Rlimit
 	if err := syscall.Getrlimit(syscall.RLIMIT_NOFILE, &rLimit); err != nil {
-		log.Fatalf("failed to set ulimit: %v", err)
+		return fmt.Errorf("get ulimit: %w", err)
 	}
 	newRLimit := syscall.Rlimit{
 		Cur: syscallhelper.RlimitMax(rLimit),
 		Max: syscallhelper.RlimitMax(rLimit),
 	}
 	if err := syscall.Setrlimit(syscall.RLIMIT_NOFILE, &newRLimit); err != nil {
-		log.Fatalf("failed to set ulimit: %v", err)
+		return fmt.Errorf("set ulimit: %v", err)
 	}
 
-	file, err := openConfigFile()
+	file, err := openConfigFile(configFile)
 	if err != nil {
-		log.Fatalf("failed to open config file: %v", err)
+		return fmt.Errorf("open config file: %v", err)
 	}
 	defer file.Close()
 
 	config, err := sshtunnel.LoadConfigFile(file)
 	if err != nil {
-		log.Fatalf("failed to load config file: %v", err)
+		return fmt.Errorf("load config file: %v", err)
 	}
 
 	logger := log.New(os.Stdout, "[sshtunnel] ", log.Flags())
@@ -108,23 +155,21 @@ func _main() {
 		}
 	}
 	wg.Wait()
+
+	return nil
 }
 
-func openConfigFile() (*os.File, error) {
-	if len(flag.Args()) > 2 {
-		return nil, fmt.Errorf("too many arguments - %v", flag.Args()[1:])
+func openConfigFile(configFile string) (*os.File, error) {
+	var err error
+	if configFile != "" {
+		var file *os.File
+		file, err = os.Open(configFile)
+		if err == nil {
+			return file, nil
+		}
 	}
 
-	if flag.NArg() == 2 {
-		return os.Open(flag.Arg(1))
-	}
-
-	file, err := os.Open(".tunnel.yml")
-	if err == nil {
-		return file, nil
-	}
-
-	if !os.IsNotExist(err) {
+	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
 
@@ -135,14 +180,43 @@ func openConfigFile() (*os.File, error) {
 	return os.Open(filepath.Join(home, ".tunnel.yml"))
 }
 
-func killDaemon(dCtx daemon.Context) error {
+func printDaemonStatus(dCtx *daemon.Context) error {
+	p, err := dCtx.Search()
+	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Println("daemon process not running")
+			return nil
+		}
+		return fmt.Errorf("search daemon process: %w", err)
+	}
+	err = p.Signal(syscall.Signal(0))
+	if err == nil {
+		fmt.Printf("daemon process(pid: %d) running\n", p.Pid)
+	} else {
+		fmt.Println("daemon process not running")
+	}
+	return nil
+}
+
+func killDaemon(dCtx *daemon.Context) error {
 	p, err := dCtx.Search()
 	if err != nil {
 		return fmt.Errorf("search for daemon process: %w", err)
 	}
-	fmt.Printf("killing daemon process - %d\n", p.Pid)
+	fmt.Printf("killing daemon process(pid: %d)\n", p.Pid)
 	if err := p.Kill(); err != nil {
-		return fmt.Errorf("kill daemon process: %w", err)
+		return fmt.Errorf("kill daemon process(pid: %d): %w", p.Pid, err)
 	}
 	return os.Remove(dCtx.PidFileName)
+}
+
+func logDaemon(dCtx *daemon.Context) error {
+	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt, os.Kill)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "sh", "-c", "tail -F "+dCtx.LogFileName)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
