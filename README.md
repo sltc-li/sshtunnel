@@ -33,6 +33,7 @@ COMMANDS:
    status   show daemon process status
    kill     kill daemon process
    logs     show daemon process logs
+   reload   reload config
    help, h  Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:

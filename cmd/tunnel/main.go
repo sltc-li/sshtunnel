@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/sevlyar/go-daemon"
 	"github.com/urfave/cli/v2"
@@ -50,6 +51,13 @@ func setupCli() {
 				Usage: "show daemon process logs",
 				Action: func(c *cli.Context) error {
 					return tailDaemonLogs(dCtx(c))
+				},
+			},
+			&cli.Command{
+				Name:  "reload",
+				Usage: "reload config",
+				Action: func(c *cli.Context) error {
+					return reloadConfig(dCtx(c))
 				},
 			},
 		},
@@ -119,44 +127,113 @@ func start(configFile string) error {
 		return fmt.Errorf("set ulimit: %v", err)
 	}
 
+	starter := newStarter(log.New(os.Stdout, "[sshtunnel] ", log.Flags()))
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, os.Kill, syscall.SIGHUP)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := starter.load(ctx, configFile); err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	for {
+		select {
+		case sig := <-sigCh:
+			switch sig {
+			case os.Interrupt, os.Kill:
+				cancel()
+				return nil
+			case syscall.SIGHUP:
+				// reload config
+				if err := starter.load(ctx, configFile); err != nil {
+					cancel()
+					return fmt.Errorf("reload config: %w", err)
+				}
+			}
+		}
+	}
+}
+
+type Starter struct {
+	logger *log.Logger
+
+	config *sshtunnel.YAMLConfig
+	stop   func()
+}
+
+func newStarter(logger *log.Logger) *Starter {
+	return &Starter{logger: logger}
+}
+
+func (s *Starter) load(ctx context.Context, configFile string) error {
+	config, err := loadConfig(configFile)
+	if err != nil {
+		return err
+	}
+
+	if s.config.Equals(config) {
+		fmt.Println("config not change")
+		return nil
+	}
+
+	s.config = config
+
+	if s.stop != nil {
+		s.stop()
+		time.Sleep(time.Second)
+	}
+
+	go s.startTunnels(ctx)
+	return nil
+}
+
+func (s *Starter) startTunnels(ctx context.Context) {
+	if s.config == nil {
+		log.Println("not initialized")
+		return
+	}
+
+	ctx, s.stop = context.WithCancel(ctx)
+	defer s.stop()
+
+	var wg sync.WaitGroup
+	for _, g := range s.config.Gateways {
+		for _, t := range g.Tunnels {
+			wg.Add(1)
+			go func(keyFiles []sshtunnel.KeyFile, gatewayStr string, gatewayProxyCommand string, tunnelStr string) {
+				defer wg.Done()
+				tunnel, err := sshtunnel.NewTunnel(keyFiles, gatewayStr, gatewayProxyCommand, tunnelStr, s.logger)
+				if err != nil {
+					log.Printf("failed to init tunnel - %s: %v", t, err)
+					s.stop()
+					return
+				}
+				if err := tunnel.Forward(ctx); err != nil {
+					log.Printf("failed to forward tunnel - %s: %v", t, err)
+					s.stop()
+				}
+			}(s.config.KeyFiles, g.Server, g.ProxyCommand, t)
+		}
+	}
+	wg.Wait()
+}
+
+func loadConfig(configFile string) (*sshtunnel.YAMLConfig, error) {
 	file, err := openConfigFile(configFile)
 	if err != nil {
-		return fmt.Errorf("open config file: %v", err)
+		return nil, fmt.Errorf("open config file: %v", err)
 	}
 	defer file.Close()
 
 	config, err := sshtunnel.LoadConfigFile(file)
 	if err != nil {
-		return fmt.Errorf("load config file: %v", err)
+		return nil, fmt.Errorf("load config file: %v", err)
 	}
 
-	logger := log.New(os.Stdout, "[sshtunnel] ", log.Flags())
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
-	defer stop()
-
-	var wg sync.WaitGroup
-	for _, g := range config.Gateways {
-		for _, t := range g.Tunnels {
-			wg.Add(1)
-			go func(keyFiles []sshtunnel.KeyFile, gatewayStr string, gatewayProxyCommand string, tunnelStr string) {
-				defer wg.Done()
-				tunnel, err := sshtunnel.NewTunnel(keyFiles, gatewayStr, gatewayProxyCommand, tunnelStr, logger)
-				if err != nil {
-					log.Printf("failed to init tunnel - %s: %v", t, err)
-					stop()
-					return
-				}
-				if err := tunnel.Forward(ctx); err != nil {
-					log.Printf("failed to forward tunnel - %s: %v", t, err)
-					stop()
-				}
-			}(config.KeyFiles, g.Server, g.ProxyCommand, t)
-		}
-	}
-	wg.Wait()
-
-	return nil
+	return config, nil
 }
 
 func openConfigFile(configFile string) (*os.File, error) {
@@ -181,20 +258,15 @@ func openConfigFile(configFile string) (*os.File, error) {
 }
 
 func printDaemonStatus(dCtx *daemon.Context) error {
-	p, err := dCtx.Search()
+	process, running, err := daemonRunning(dCtx)
 	if err != nil {
-		if os.IsNotExist(err) {
-			fmt.Println("daemon process not running")
-			return nil
-		}
-		return fmt.Errorf("search daemon process: %w", err)
+		return err
 	}
-	err = p.Signal(syscall.Signal(0))
-	if err == nil {
-		fmt.Printf("daemon process(pid: %d) running\n", p.Pid)
-	} else {
+	if !running {
 		fmt.Println("daemon process not running")
+		return nil
 	}
+	fmt.Printf("daemon process(pid: %d) running\n", process.Pid)
 	return nil
 }
 
@@ -219,4 +291,35 @@ func tailDaemonLogs(dCtx *daemon.Context) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+func reloadConfig(dCtx *daemon.Context) error {
+	p, running, err := daemonRunning(dCtx)
+	if err != nil {
+		return err
+	}
+	if !running {
+		fmt.Println("daemon process not running")
+		return nil
+	}
+	err = p.Signal(syscall.SIGHUP)
+	if err == nil {
+		fmt.Println("config reloaded")
+	}
+	return err
+}
+
+func daemonRunning(dCtx *daemon.Context) (process *os.Process, running bool, err error) {
+	p, err := dCtx.Search()
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("search daemon process: %w", err)
+	}
+	err = p.Signal(syscall.Signal(0))
+	if err != nil {
+		return p, false, nil
+	}
+	return p, true, nil
 }

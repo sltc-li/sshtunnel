@@ -2,6 +2,7 @@ package sshtunnel
 
 import (
 	"os"
+	"reflect"
 
 	"github.com/go-yaml/yaml"
 )
@@ -14,6 +15,11 @@ type YAMLConfig struct {
 		Tunnels      []string `yaml:"tunnels"`
 	} `yaml:"gateways"`
 }
+
+func (c *YAMLConfig) Equals(r *YAMLConfig) bool {
+	return reflect.DeepEqual(c, r)
+}
+
 type KeyFile struct {
 	Path       string
 	Passphrase string
