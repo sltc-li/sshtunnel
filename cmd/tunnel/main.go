@@ -202,6 +202,7 @@ func (s *Starter) startTunnels(ctx context.Context) {
 	var wg sync.WaitGroup
 	for _, g := range s.config.Gateways {
 		for _, t := range g.Tunnels {
+			t := t
 			wg.Add(1)
 			go func(keyFiles []sshtunnel.KeyFile, gatewayStr string, gatewayProxyCommand string, tunnelStr string) {
 				defer wg.Done()
