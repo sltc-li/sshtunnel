@@ -65,8 +65,8 @@ func setupCli() {
 			&cli.StringFlag{
 				Name:    "config",
 				Aliases: []string{"c"},
-				Usage:   "specify a yaml config file, --config > ./.tunnel.yml > ~/.tunnel.yml",
-				Value:   "./.tunnel.yml",
+				Usage:   "specify a yaml config file",
+				Value:   "./.tunnel.yml OR ~/.tunnel.yml",
 			},
 			&cli.BoolFlag{
 				Name:    "daemon",
@@ -201,22 +201,27 @@ func (s *Starter) startTunnels(ctx context.Context) {
 
 	var wg sync.WaitGroup
 	for _, g := range s.config.Gateways {
+		gateway, err := sshtunnel.NewGateway(s.config.KeyFiles, g.Server, g.ProxyCommand)
+		if err != nil {
+			log.Printf("failed to init gateay %s: %v", g.Server, err)
+			return
+		}
+
 		for _, t := range g.Tunnels {
-			t := t
 			wg.Add(1)
-			go func(keyFiles []sshtunnel.KeyFile, gatewayStr string, gatewayProxyCommand string, tunnelStr string) {
+			go func(tunnelStr string) {
 				defer wg.Done()
-				tunnel, err := sshtunnel.NewTunnel(keyFiles, gatewayStr, gatewayProxyCommand, tunnelStr, s.logger)
+				tunnel, err := sshtunnel.NewTunnel(gateway, tunnelStr, s.logger)
 				if err != nil {
-					log.Printf("failed to init tunnel - %s: %v", t, err)
+					log.Printf("failed to init tunnel - %s: %v", tunnelStr, err)
 					s.stop()
 					return
 				}
 				if err := tunnel.Forward(ctx); err != nil {
-					log.Printf("failed to forward tunnel - %s: %v", t, err)
+					log.Printf("failed to forward tunnel - %s: %v", tunnelStr, err)
 					s.stop()
 				}
-			}(s.config.KeyFiles, g.Server, g.ProxyCommand, t)
+			}(t)
 		}
 	}
 	wg.Wait()
