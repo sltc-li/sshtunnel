@@ -2,6 +2,7 @@ package sshtunnel
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net"
 	"sync"
@@ -18,104 +19,97 @@ func NewGateway(
 	if err != nil {
 		return nil, err
 	}
-	return &Gateway{dialer: d}, nil
+
+	return &Gateway{d: d}, nil
 }
 
 type Gateway struct {
-	dialer
-
-	mux sync.RWMutex
-	c   sshClientWrapper
+	d    dialer
+	c    sshClientWrapper
+	mux  sync.RWMutex
+	once sync.Once
 }
 
-func (c *Gateway) Dial(ctx context.Context, n, addr string) (net.Conn, error) {
-	if c.getC() == nil {
-		if err := c.reconnect(ctx); err != nil {
-			return nil, err
+func (g *Gateway) Dial(ctx context.Context, n, addr string) (net.Conn, error) {
+	g.once.Do(func() {
+		if err := g.connect(ctx); err != nil {
+			log.Printf("failed to connect: %v", err)
 		}
-		return c.getC().Dial(n, addr)
-	}
+	})
 
-	conn, err := c.getC().Dial(n, addr)
+	conn, err := g.getC().Dial(n, addr)
 	if err != nil {
-		if err := c.reconnect(ctx); err != nil {
-			return nil, err
+		if err := g.reconnect(ctx); err != nil {
+			return nil, fmt.Errorf("reconnect: %w", err)
 		}
-		return c.getC().Dial(n, addr)
+
+		return g.getC().Dial(n, addr)
 	}
 
 	return conn, nil
 }
 
-func (c *Gateway) Close() error {
-	if c.getC() != nil {
-		return c.getC().Close()
-	}
-	return nil
+func (g *Gateway) Close() error {
+	return g.c.Close()
 }
 
-func (c *Gateway) KeepAlive(ctx context.Context) {
-	wait := make(chan error, 1)
-	go func() {
-		wait <- c.getC().Wait()
-	}()
-
+func (g *Gateway) KeepAlive(ctx context.Context) {
 	var aliveErrCount uint32
+
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
-		select {
-		case <-wait:
-			return
-		case <-ticker.C:
-			if atomic.LoadUint32(&aliveErrCount) > 1 {
-				log.Printf("failed to keep alive of %v", c.getC().RemoteAddr())
-				c.getC().Close()
+		go func() {
+			if g.getC() == nil {
 				return
+			}
+
+			_, _, err := g.getC().SendRequest("keepalive@openssh.com", true, nil)
+			if err != nil {
+				atomic.StoreUint32(&aliveErrCount, 1)
+			}
+		}()
+
+		select {
+		case <-ticker.C:
+			if atomic.LoadUint32(&aliveErrCount) == 1 {
+				log.Printf("failed to keep alive of remote(%v), local(%v)", g.getC().RemoteAddr(), g.getC().LocalAddr())
+				if err := g.reconnect(ctx); err != nil {
+					log.Printf("failed to reconnect: %v", err)
+				}
+
+				atomic.StoreUint32(&aliveErrCount, 0)
 			}
 		case <-ctx.Done():
 			return
 		}
-
-		go func() {
-			_, _, err := c.getC().SendRequest("keepalive@openssh.com", true, nil)
-			if err != nil {
-				atomic.AddUint32(&aliveErrCount, 1)
-			}
-		}()
 	}
 }
 
-func (c *Gateway) getC() sshClientWrapper {
-	c.mux.RLock()
-	defer c.mux.RUnlock()
-	return c.c
+func (g *Gateway) getC() sshClientWrapper {
+	g.mux.RLock()
+	defer g.mux.RUnlock()
+	return g.c
 }
 
-func (c *Gateway) reconnect(ctx context.Context) error {
-	if err := func() error {
-		c.mux.Lock()
-		defer c.mux.Unlock()
+func (g *Gateway) connect(ctx context.Context) error {
+	g.mux.Lock()
+	defer g.mux.Unlock()
 
-		if c.c != nil {
-			c.c.Close()
-		}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-
-		client, err := c.dialer.Dial(ctx)
-		if err != nil {
-			return err
-		}
-
-		c.c = client
-		return nil
-	}(); err != nil {
+	client, err := g.d.Dial(ctx)
+	if err != nil {
 		return err
 	}
 
-	go c.KeepAlive(ctx)
+	g.c = client
 	return nil
+}
+
+func (g *Gateway) reconnect(ctx context.Context) error {
+	_ = g.c.Close()
+	return g.connect(ctx)
 }

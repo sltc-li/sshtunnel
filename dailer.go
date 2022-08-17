@@ -55,8 +55,6 @@ func newDailer(
 type tcpDialer struct {
 	host   string
 	config *ssh.ClientConfig
-
-	client *closableSSHClient
 }
 
 func newTCPDialer(host string, config *ssh.ClientConfig) *tcpDialer {
@@ -67,35 +65,18 @@ func newTCPDialer(host string, config *ssh.ClientConfig) *tcpDialer {
 }
 
 func (d *tcpDialer) Dial(ctx context.Context) (sshClientWrapper, error) {
-	if d.client != nil && d.client.Client != nil {
-		return d.client, nil
-	}
-
 	client, err := ssh.Dial("tcp", d.host, d.config)
 	if err != nil {
 		return nil, fmt.Errorf("dial gateway %s: %w", d.host, err)
 	}
 
-	d.client = &closableSSHClient{Client: client}
-	return d.client, nil
-}
-
-type closableSSHClient struct {
-	*ssh.Client
-}
-
-func (c *closableSSHClient) Close() error {
-	err := c.Client.Close()
-	c.Client = nil
-	return err
+	return client, nil
 }
 
 type proxyDialer struct {
 	host         string
 	config       *ssh.ClientConfig
 	proxyCommand string
-
-	client *proxySSHClient
 }
 
 func newProxyDialer(host string, config *ssh.ClientConfig, proxyCommand string) *proxyDialer {
@@ -110,10 +91,6 @@ func newProxyDialer(host string, config *ssh.ClientConfig, proxyCommand string) 
 }
 
 func (d *proxyDialer) Dial(ctx context.Context) (sshClientWrapper, error) {
-	if d.client != nil && d.client.Client != nil {
-		return d.client, nil
-	}
-
 	clientConn, proxyConn := net.Pipe()
 	cmd := exec.Command("bash", "-c", d.proxyCommand)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -143,12 +120,12 @@ func (d *proxyDialer) Dial(ctx context.Context) (sshClientWrapper, error) {
 	case err := <-errCh:
 		return nil, err
 	case client := <-clientCh:
-		d.client = &proxySSHClient{
+		return &proxySSHClient{
 			cmd:    cmd,
 			Client: client,
-		}
-		return d.client, nil
+		}, nil
 	case <-ctx.Done():
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		return nil, ctx.Err()
 	}
 }
@@ -159,12 +136,7 @@ type proxySSHClient struct {
 }
 
 func (c *proxySSHClient) Close() error {
-	if c.Client == nil {
-		return nil
-	}
-
 	err := c.Client.Close()
-	c.Client = nil
 	_ = syscall.Kill(-c.cmd.Process.Pid, syscall.SIGKILL)
 	return err
 }

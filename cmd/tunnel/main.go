@@ -207,6 +207,8 @@ func (s *Starter) startTunnels(ctx context.Context) {
 			return
 		}
 
+		go gateway.KeepAlive(ctx)
+
 		for _, t := range g.Tunnels {
 			wg.Add(1)
 			go func(tunnelStr string) {
