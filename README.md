@@ -37,7 +37,7 @@ COMMANDS:
    help, h  Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
-   --config value, -c value  specify a yaml config file, --config > ./.tunnel.yml > ~/.tunnel.yml (default: "./.tunnel.yml")
+   --config value, -c value  specify a yaml config file (default: "./.tunnel.yml")
    --daemon, -d              daemonize tunnel (default: false)
    --pidfile value           specify pid file for daemon process (default: "./.tunnel.pid")
    --logfile value           specify log file for daemon process (default: "./.tunnel.log")
@@ -46,6 +46,14 @@ GLOBAL OPTIONS:
 ```
 
 See [config.yaml.sample](cmd/tunnel/config.yml.sample) for format of config file.
+
+## Configuration File
+`tunnel` by default consults a few locations for the config files.
+
+1. specified in `--config` or `-c`
+2. `./.tunnel.yml`
+3. `$XDG_CONFIG_HOME/sshtunnel/.tunnel.yml`
+4. `$HOME/.tunnel.yml`
 
 ## Use go-bindata to build independent binary
 
