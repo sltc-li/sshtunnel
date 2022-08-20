@@ -66,7 +66,7 @@ func setupCli() {
 				Name:    "config",
 				Aliases: []string{"c"},
 				Usage:   "specify a yaml config file",
-				Value:   "./.tunnel.yml OR ~/.tunnel.yml",
+				Value:   "./.tunnel.yml",
 			},
 			&cli.BoolFlag{
 				Name:    "daemon",
