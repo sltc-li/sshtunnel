@@ -14,13 +14,32 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-type sshClientWrapper interface {
-	ssh.Conn
-	Dial(n, addr string) (net.Conn, error)
+var (
+	errSSHClientNotInitialized = errors.New("ssh client not initialized")
+)
+
+type sshClientWrapper struct {
+	*ssh.Client
+	cmd *exec.Cmd
+}
+
+func (c *sshClientWrapper) Dial(n, addr string) (net.Conn, error) {
+	if c == nil {
+		return nil, errSSHClientNotInitialized
+	}
+	return c.Client.Dial(n, addr)
+}
+
+func (c *sshClientWrapper) Close() error {
+	err := c.Client.Close()
+	if c.cmd != nil {
+		_ = syscall.Kill(-c.cmd.Process.Pid, syscall.SIGKILL)
+	}
+	return err
 }
 
 type dialer interface {
-	Dial(ctx context.Context) (sshClientWrapper, error)
+	Dial(ctx context.Context) (*sshClientWrapper, error)
 }
 
 func newDailer(
@@ -64,13 +83,13 @@ func newTCPDialer(host string, config *ssh.ClientConfig) *tcpDialer {
 	}
 }
 
-func (d *tcpDialer) Dial(ctx context.Context) (sshClientWrapper, error) {
+func (d *tcpDialer) Dial(ctx context.Context) (*sshClientWrapper, error) {
 	client, err := ssh.Dial("tcp", d.host, d.config)
 	if err != nil {
 		return nil, fmt.Errorf("dial gateway %s: %w", d.host, err)
 	}
 
-	return client, nil
+	return &sshClientWrapper{Client: client}, nil
 }
 
 type proxyDialer struct {
@@ -90,7 +109,7 @@ func newProxyDialer(host string, config *ssh.ClientConfig, proxyCommand string) 
 	}
 }
 
-func (d *proxyDialer) Dial(ctx context.Context) (sshClientWrapper, error) {
+func (d *proxyDialer) Dial(ctx context.Context) (*sshClientWrapper, error) {
 	clientConn, proxyConn := net.Pipe()
 	cmd := exec.Command("bash", "-c", d.proxyCommand)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -120,7 +139,7 @@ func (d *proxyDialer) Dial(ctx context.Context) (sshClientWrapper, error) {
 	case err := <-errCh:
 		return nil, err
 	case client := <-clientCh:
-		return &proxySSHClient{
+		return &sshClientWrapper{
 			cmd:    cmd,
 			Client: client,
 		}, nil
@@ -128,15 +147,4 @@ func (d *proxyDialer) Dial(ctx context.Context) (sshClientWrapper, error) {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		return nil, ctx.Err()
 	}
-}
-
-type proxySSHClient struct {
-	cmd *exec.Cmd
-	*ssh.Client
-}
-
-func (c *proxySSHClient) Close() error {
-	err := c.Client.Close()
-	_ = syscall.Kill(-c.cmd.Process.Pid, syscall.SIGKILL)
-	return err
 }

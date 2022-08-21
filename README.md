@@ -19,7 +19,7 @@ $ go install github.com/li-go/sshtunnel/cmd/tunnel@latest
 ## Usage
 
 ```bash
-$ tunnel -h
+-$ tunnel -h
 NAME:
    tunnel - a tool helps to do ssh forwarding
 
@@ -37,7 +37,7 @@ COMMANDS:
    help, h  Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
-   --config value, -c value  specify a yaml config file, --config > ./.tunnel.yml > ~/.tunnel.yml (default: "./.tunnel.yml")
+   --config value, -c value  specify a yaml config file (try -c > ./.tunnel.yml > ~/.tunnel.yml in order) (default: "./.tunnel.yml")
    --daemon, -d              daemonize tunnel (default: false)
    --pidfile value           specify pid file for daemon process (default: "./.tunnel.pid")
    --logfile value           specify log file for daemon process (default: "./.tunnel.log")

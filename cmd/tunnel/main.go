@@ -65,7 +65,7 @@ func setupCli() {
 			&cli.StringFlag{
 				Name:    "config",
 				Aliases: []string{"c"},
-				Usage:   "specify a yaml config file",
+				Usage:   "specify a yaml config file (try -c > ./.tunnel.yml > ~/.tunnel.yml in order)",
 				Value:   "./.tunnel.yml",
 			},
 			&cli.BoolFlag{
@@ -110,6 +110,11 @@ func setupCli() {
 	}
 }
 
+func init() {
+	l := log.Default()
+	l.SetPrefix("[sshtunnel] ")
+}
+
 func main() {
 	setupCli()
 }
@@ -127,7 +132,7 @@ func start(configFile string) error {
 		return fmt.Errorf("set ulimit: %v", err)
 	}
 
-	starter := newStarter(log.New(os.Stdout, "[sshtunnel] ", log.Flags()))
+	starter := newStarter()
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, os.Interrupt, os.Kill, syscall.SIGHUP)
@@ -158,14 +163,12 @@ func start(configFile string) error {
 }
 
 type Starter struct {
-	logger *log.Logger
-
 	config *sshtunnel.YAMLConfig
 	stop   func()
 }
 
-func newStarter(logger *log.Logger) *Starter {
-	return &Starter{logger: logger}
+func newStarter() *Starter {
+	return &Starter{}
 }
 
 func (s *Starter) load(ctx context.Context, configFile string) error {
@@ -175,7 +178,7 @@ func (s *Starter) load(ctx context.Context, configFile string) error {
 	}
 
 	if s.config.Equals(config) {
-		fmt.Println("config not change")
+		log.Print("config not change")
 		return nil
 	}
 
@@ -192,7 +195,7 @@ func (s *Starter) load(ctx context.Context, configFile string) error {
 
 func (s *Starter) startTunnels(ctx context.Context) {
 	if s.config == nil {
-		log.Println("not initialized")
+		log.Print("not initialized")
 		return
 	}
 
@@ -203,7 +206,7 @@ func (s *Starter) startTunnels(ctx context.Context) {
 	for _, g := range s.config.Gateways {
 		gateway, err := sshtunnel.NewGateway(s.config.KeyFiles, g.Server, g.ProxyCommand)
 		if err != nil {
-			log.Printf("failed to init gateay %s: %v", g.Server, err)
+			log.Printf("ERROR: init gateway %s: %v", g.Server, err)
 			return
 		}
 
@@ -213,14 +216,14 @@ func (s *Starter) startTunnels(ctx context.Context) {
 			wg.Add(1)
 			go func(tunnelStr string) {
 				defer wg.Done()
-				tunnel, err := sshtunnel.NewTunnel(gateway, tunnelStr, s.logger)
+				tunnel, err := sshtunnel.NewTunnel(gateway, tunnelStr)
 				if err != nil {
-					log.Printf("failed to init tunnel - %s: %v", tunnelStr, err)
+					log.Printf("ERROR: init tunnel - %s: %v", tunnelStr, err)
 					s.stop()
 					return
 				}
 				if err := tunnel.Forward(ctx); err != nil {
-					log.Printf("failed to forward tunnel - %s: %v", tunnelStr, err)
+					log.Printf("ERROR: forward tunnel - %s: %v", tunnelStr, err)
 					s.stop()
 				}
 			}(t)
@@ -271,10 +274,10 @@ func printDaemonStatus(dCtx *daemon.Context) error {
 		return err
 	}
 	if !running {
-		fmt.Println("daemon process not running")
+		log.Print("daemon process not running")
 		return nil
 	}
-	fmt.Printf("daemon process(pid: %d) running\n", process.Pid)
+	log.Printf("daemon process(pid: %d) running\n", process.Pid)
 	return nil
 }
 
