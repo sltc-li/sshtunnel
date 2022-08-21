@@ -3,7 +3,7 @@ module github.com/li-go/sshtunnel
 go 1.16
 
 require (
-	github.com/adrg/xdg v0.4.0 // indirect
+	github.com/adrg/xdg v0.4.0
 	github.com/go-yaml/yaml v2.1.0+incompatible
 	github.com/kardianos/osext v0.0.0-20190222173326-2bc1f35cddc0 // indirect
 	github.com/sevlyar/go-daemon v0.1.5
