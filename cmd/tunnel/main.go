@@ -15,6 +15,7 @@ import (
 	"github.com/sevlyar/go-daemon"
 	"github.com/urfave/cli/v2"
 
+	"github.com/adrg/xdg"
 	"github.com/li-go/sshtunnel"
 	"github.com/li-go/sshtunnel/syscallhelper"
 )
@@ -261,11 +262,16 @@ func openConfigFile(configFile string) (*os.File, error) {
 		return nil, err
 	}
 
-	home, err := os.UserHomeDir()
+	cfp, err := xdg.SearchConfigFile("sshtunnel/.tunnel.yml")
 	if err != nil {
-		return nil, err
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+		return os.Open(filepath.Join(home, ".tunnel.yml"))
 	}
-	return os.Open(filepath.Join(home, ".tunnel.yml"))
+
+	return os.Open(cfp)
 }
 
 func printDaemonStatus(dCtx *daemon.Context) error {
