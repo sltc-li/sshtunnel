@@ -1,7 +1,7 @@
 package sshtunnel
 
 import (
-	"os"
+	"io"
 	"reflect"
 
 	"github.com/go-yaml/yaml"
@@ -27,7 +27,10 @@ type KeyFile struct {
 
 func (f *KeyFile) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	var raw interface{}
-	unmarshal(&raw)
+	if err := unmarshal(&raw); err != nil {
+		return err
+	}
+
 	switch raw := raw.(type) {
 	case string:
 		*f = KeyFile{
@@ -44,9 +47,9 @@ func (f *KeyFile) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return nil
 }
 
-func LoadConfigFile(file *os.File) (*YAMLConfig, error) {
+func LoadConfigFile(r io.Reader) (*YAMLConfig, error) {
 	var config YAMLConfig
-	if err := yaml.NewDecoder(file).Decode(&config); err != nil {
+	if err := yaml.NewDecoder(r).Decode(&config); err != nil {
 		return nil, err
 	}
 	return &config, nil

@@ -5,27 +5,21 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"strings"
 )
-
-type logger interface {
-	Printf(string, ...interface{})
-}
 
 type tunnel struct {
 	gateway *Gateway
 
 	dialAddr string
 	bindAddr string
-
-	log logger
 }
 
 func NewTunnel(
 	gateway *Gateway,
 	tunnelStr string, // remoteAddr:port -> 127.0.0.1:port
-	log logger,
 ) (*tunnel, error) {
 	tunnelInfo := strings.Split(tunnelStr, "->")
 	if len(tunnelInfo) != 2 {
@@ -35,7 +29,6 @@ func NewTunnel(
 		gateway:  gateway,
 		dialAddr: strings.TrimSpace(tunnelInfo[0]),
 		bindAddr: strings.TrimSpace(tunnelInfo[1]),
-		log:      log,
 	}, nil
 }
 
@@ -49,8 +42,8 @@ func (t *tunnel) Forward(ctx context.Context) error {
 	}
 	defer bindListener.Close()
 
-	t.log.Printf("start forwarding: %s -> %s", t.dialAddr, t.bindAddr)
-	defer t.log.Printf("stop forwarding: %s -> %s", t.dialAddr, t.bindAddr)
+	log.Printf("start forwarding: %s -> %s", t.dialAddr, t.bindAddr)
+	defer log.Printf("stop forwarding: %s -> %s", t.dialAddr, t.bindAddr)
 
 	t.startAccept(ctx, bindListener)
 	return nil
@@ -69,18 +62,18 @@ func (t *tunnel) startAccept(ctx context.Context, bindListener *closableListener
 			break
 		}
 		if err != nil {
-			t.log.Printf("failed to accept %s: %v", t.bindAddr, err)
+			log.Printf("ERROR: accept %s: %v", t.bindAddr, err)
 			break
 		}
 
-		t.log.Printf("accepted %s -> %s", t.bindAddr, bindConn.RemoteAddr())
+		log.Printf("accepted %s -> %s", t.bindAddr, bindConn.RemoteAddr())
 		go func(bindConn net.Conn) {
-			defer t.log.Printf("disconnected %s -> %s", t.bindAddr, bindConn.RemoteAddr())
+			defer log.Printf("disconnected %s -> %s", t.bindAddr, bindConn.RemoteAddr())
 			defer bindConn.Close()
 
 			dialConn, err := t.gateway.Dial(ctx, "tcp", t.dialAddr)
 			if err != nil {
-				t.log.Printf("failed to dial %s: %v", t.dialAddr, err)
+				log.Printf("ERROR: dial %s: %v", t.dialAddr, err)
 				return
 			}
 			defer dialConn.Close()
@@ -101,7 +94,7 @@ func (t *tunnel) biCopy(ctx context.Context, dialConn, bindConn net.Conn) {
 	case <-ctx.Done():
 	case err := <-errCh:
 		if err != nil {
-			t.log.Printf("failed to biCopy: %v", err)
+			log.Printf("ERROR: biCopy: %v", err)
 		}
 	}
 }

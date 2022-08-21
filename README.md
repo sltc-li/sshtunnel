@@ -19,7 +19,7 @@ $ go install github.com/li-go/sshtunnel/cmd/tunnel@latest
 ## Usage
 
 ```bash
-$ tunnel -h
+-$ tunnel -h
 NAME:
    tunnel - a tool helps to do ssh forwarding
 

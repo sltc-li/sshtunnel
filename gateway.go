@@ -2,6 +2,7 @@ package sshtunnel
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -24,23 +25,22 @@ func NewGateway(
 }
 
 type Gateway struct {
-	d    dialer
-	c    sshClientWrapper
-	mux  sync.RWMutex
-	once sync.Once
+	d   dialer
+	c   *sshClientWrapper
+	mux sync.RWMutex
 }
 
 func (g *Gateway) Dial(ctx context.Context, n, addr string) (net.Conn, error) {
-	g.once.Do(func() {
-		if err := g.connect(ctx); err != nil {
-			log.Printf("failed to connect: %v", err)
-		}
-	})
-
 	conn, err := g.getC().Dial(n, addr)
 	if err != nil {
-		if err := g.reconnect(ctx); err != nil {
-			return nil, fmt.Errorf("reconnect: %w", err)
+		if errors.Is(err, errSSHClientNotInitialized) {
+			if err := g.connect(ctx); err != nil {
+				return nil, fmt.Errorf("connect: %w", err)
+			}
+		} else {
+			if err := g.reconnect(ctx); err != nil {
+				return nil, fmt.Errorf("reconnect: %w", err)
+			}
 		}
 
 		return g.getC().Dial(n, addr)
@@ -74,9 +74,9 @@ func (g *Gateway) KeepAlive(ctx context.Context) {
 		select {
 		case <-ticker.C:
 			if atomic.LoadUint32(&aliveErrCount) == 1 {
-				log.Printf("failed to keep alive of remote(%v), local(%v)", g.getC().RemoteAddr(), g.getC().LocalAddr())
+				log.Printf("ERROR: keep alive of remote(%v), local(%v)", g.getC().RemoteAddr(), g.getC().LocalAddr())
 				if err := g.reconnect(ctx); err != nil {
-					log.Printf("failed to reconnect: %v", err)
+					log.Printf("ERROR: reconnect: %v", err)
 				}
 
 				atomic.StoreUint32(&aliveErrCount, 0)
@@ -87,7 +87,7 @@ func (g *Gateway) KeepAlive(ctx context.Context) {
 	}
 }
 
-func (g *Gateway) getC() sshClientWrapper {
+func (g *Gateway) getC() *sshClientWrapper {
 	g.mux.RLock()
 	defer g.mux.RUnlock()
 	return g.c
