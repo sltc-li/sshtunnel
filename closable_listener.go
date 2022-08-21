@@ -5,12 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sync"
-)
-
-var (
-	tcpAddressPattern = regexp.MustCompile(`(.+\.)+\w+:\d+`)
 )
 
 func closableListen(address string) (*closableListener, error) {
@@ -18,7 +13,7 @@ func closableListen(address string) (*closableListener, error) {
 		l   net.Listener
 		err error
 	)
-	if tcpAddressPattern.MatchString(address) {
+	if _, rErr := net.ResolveTCPAddr("tcp", address); rErr == nil {
 		l, err = net.Listen("tcp", address)
 	} else {
 		// try unix socket connection
