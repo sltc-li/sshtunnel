@@ -97,7 +97,7 @@ func (g *Gateway) connect(ctx context.Context) error {
 	g.mux.Lock()
 	defer g.mux.Unlock()
 
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	client, err := g.d.Dial(ctx)
