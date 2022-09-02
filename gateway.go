@@ -50,7 +50,11 @@ func (g *Gateway) Dial(ctx context.Context, n, addr string) (net.Conn, error) {
 }
 
 func (g *Gateway) Close() error {
-	return g.c.Close()
+	if err := g.c.Close(); err != nil {
+		_ = g.d.Close()
+		return err
+	}
+	return g.d.Close()
 }
 
 func (g *Gateway) KeepAlive(ctx context.Context) {
