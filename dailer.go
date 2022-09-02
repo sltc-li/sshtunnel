@@ -40,6 +40,7 @@ func (c *sshClientWrapper) Close() error {
 
 type dialer interface {
 	Dial(ctx context.Context) (*sshClientWrapper, error)
+	Close() error
 }
 
 func newDailer(
@@ -47,12 +48,14 @@ func newDailer(
 	gatewayStr string, // user@addr:port
 	gatewayProxyCommand string,
 ) (dialer, error) {
-	auth, err := parseKeyFiles(keyFiles)
+	auth, cleanup, err := parseKeyFiles(keyFiles)
 	if err != nil {
+		cleanup()
 		return nil, fmt.Errorf("parse key files: %w", err)
 	}
 	gatewayInfo := strings.Split(gatewayStr, "@")
 	if len(gatewayInfo) != 2 {
+		cleanup()
 		return nil, errors.New("invalid gateway format (e.g. user@addr:port)")
 	}
 	gatewayUser, gatewayHost := gatewayInfo[0], gatewayInfo[1]
@@ -66,20 +69,22 @@ func newDailer(
 		Timeout:         2 * time.Second,
 	}
 	if gatewayProxyCommand == "" {
-		return newTCPDialer(gatewayHost, config), nil
+		return newTCPDialer(gatewayHost, config, cleanup), nil
 	}
-	return newProxyDialer(gatewayHost, config, gatewayProxyCommand), nil
+	return newProxyDialer(gatewayHost, config, cleanup, gatewayProxyCommand), nil
 }
 
 type tcpDialer struct {
-	host   string
-	config *ssh.ClientConfig
+	host          string
+	config        *ssh.ClientConfig
+	configCleanup func()
 }
 
-func newTCPDialer(host string, config *ssh.ClientConfig) *tcpDialer {
+func newTCPDialer(host string, config *ssh.ClientConfig, configCleanup func()) *tcpDialer {
 	return &tcpDialer{
-		host:   host,
-		config: config,
+		host:          host,
+		config:        config,
+		configCleanup: configCleanup,
 	}
 }
 
@@ -92,20 +97,27 @@ func (d *tcpDialer) Dial(ctx context.Context) (*sshClientWrapper, error) {
 	return &sshClientWrapper{Client: client}, nil
 }
 
-type proxyDialer struct {
-	host         string
-	config       *ssh.ClientConfig
-	proxyCommand string
+func (d *tcpDialer) Close() error {
+	d.configCleanup()
+	return nil
 }
 
-func newProxyDialer(host string, config *ssh.ClientConfig, proxyCommand string) *proxyDialer {
+type proxyDialer struct {
+	host          string
+	config        *ssh.ClientConfig
+	configCleanup func()
+	proxyCommand  string
+}
+
+func newProxyDialer(host string, config *ssh.ClientConfig, configCleanup func(), proxyCommand string) *proxyDialer {
 	addr, port, _ := net.SplitHostPort(host)
 	proxyCommand = strings.Replace(proxyCommand, "%h", addr, -1)
 	proxyCommand = strings.Replace(proxyCommand, "%p", port, -1)
 	return &proxyDialer{
-		host:         host,
-		config:       config,
-		proxyCommand: proxyCommand,
+		host:          host,
+		config:        config,
+		configCleanup: configCleanup,
+		proxyCommand:  proxyCommand,
 	}
 }
 
@@ -147,4 +159,9 @@ func (d *proxyDialer) Dial(ctx context.Context) (*sshClientWrapper, error) {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		return nil, ctx.Err()
 	}
+}
+
+func (d *proxyDialer) Close() error {
+	d.configCleanup()
+	return nil
 }

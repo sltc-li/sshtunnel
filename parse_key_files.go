@@ -1,40 +1,60 @@
 package sshtunnel
 
 import (
-	"errors"
 	"fmt"
 	"io/ioutil"
+	"net"
+	"os"
 	"os/user"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 )
 
-func parseKeyFiles(keyFiles []KeyFile) ([]ssh.AuthMethod, error) {
-	if len(keyFiles) == 0 {
-		return nil, errors.New("no key file provided")
-	}
+func parseKeyFiles(keyFiles []KeyFile) ([]ssh.AuthMethod, func(), error) {
 	var keys []ssh.Signer
+	var cleanup = func() {}
+
+	if sock, ok := os.LookupEnv("SSH_AUTH_SOCK"); ok {
+		conn, err := net.Dial("unix", sock)
+		if err != nil {
+			return nil, func() {}, fmt.Errorf("dial ssh auth sock: %w", err)
+		}
+
+		cleanup = func() {
+			_ = conn.Close()
+		}
+
+		signers, err := agent.NewClient(conn).Signers()
+		if err != nil {
+			return nil, cleanup, fmt.Errorf("get signers from ssh agent: %w", err)
+		}
+		keys = append(keys, signers...)
+	}
+
 	for _, kf := range keyFiles {
 		buf, err := readKeyFile(kf.Path)
 		if err != nil {
-			return nil, fmt.Errorf("read key file: %w", err)
+			return nil, cleanup, fmt.Errorf("read key file: %w", err)
 		}
 		if len(kf.Passphrase) > 0 {
 			k, err := ssh.ParsePrivateKeyWithPassphrase(buf, []byte(kf.Passphrase))
 			if err != nil {
-				return nil, fmt.Errorf("parse private key: %w", err)
+				cleanup()
+				return nil, cleanup, fmt.Errorf("parse private key: %w", err)
 			}
 			keys = append(keys, k)
 		} else {
 			k, err := ssh.ParsePrivateKey(buf)
 			if err != nil {
-				return nil, fmt.Errorf("parse private key: %w", err)
+				cleanup()
+				return nil, cleanup, fmt.Errorf("parse private key: %w", err)
 			}
 			keys = append(keys, k)
 		}
 	}
-	return []ssh.AuthMethod{ssh.PublicKeys(keys...)}, nil
+	return []ssh.AuthMethod{ssh.PublicKeys(keys...)}, cleanup, nil
 }
 
 func readKeyFile(keyFilePath string) ([]byte, error) {
