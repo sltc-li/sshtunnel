@@ -156,7 +156,9 @@ func (d *proxyDialer) Dial(ctx context.Context) (*sshClientWrapper, error) {
 			Client: client,
 		}, nil
 	case <-ctx.Done():
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		if cmd.Process != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
 		return nil, ctx.Err()
 	}
 }

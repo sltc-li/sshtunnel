@@ -16,6 +16,7 @@ import (
 	"github.com/urfave/cli/v2"
 
 	"github.com/adrg/xdg"
+
 	"github.com/li-go/sshtunnel"
 	"github.com/li-go/sshtunnel/syscallhelper"
 )
@@ -141,21 +142,30 @@ func start(configFile string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	if err := starter.load(ctx, configFile); err != nil {
+	loadErrCh := make(chan error)
+	if err := starter.load(ctx, configFile, loadErrCh); err != nil {
 		return fmt.Errorf("load config: %w", err)
+	}
+
+	stop := func() {
+		cancel()
+		time.Sleep(time.Second)
 	}
 
 	for {
 		select {
+		case err := <-loadErrCh:
+			stop()
+			return fmt.Errorf("load config: %w", err)
 		case sig := <-sigCh:
 			switch sig {
 			case os.Interrupt, os.Kill:
-				cancel()
+				stop()
 				return nil
 			case syscall.SIGHUP:
 				// reload config
-				if err := starter.load(ctx, configFile); err != nil {
-					cancel()
+				if err := starter.load(ctx, configFile, loadErrCh); err != nil {
+					stop()
 					return fmt.Errorf("reload config: %w", err)
 				}
 			}
@@ -172,7 +182,7 @@ func newStarter() *Starter {
 	return &Starter{}
 }
 
-func (s *Starter) load(ctx context.Context, configFile string) error {
+func (s *Starter) load(ctx context.Context, configFile string, errCh chan<- error) error {
 	config, err := loadConfig(configFile)
 	if err != nil {
 		return err
@@ -190,18 +200,16 @@ func (s *Starter) load(ctx context.Context, configFile string) error {
 		time.Sleep(time.Second)
 	}
 
-	go s.startTunnels(ctx)
+	ctx, s.stop = context.WithCancel(ctx)
+	go s.startTunnels(ctx, errCh)
 	return nil
 }
 
-func (s *Starter) startTunnels(ctx context.Context) {
+func (s *Starter) startTunnels(ctx context.Context, errCh chan<- error) {
 	if s.config == nil {
 		log.Print("not initialized")
 		return
 	}
-
-	ctx, s.stop = context.WithCancel(ctx)
-	defer s.stop()
 
 	var wg sync.WaitGroup
 	for _, g := range s.config.Gateways {
@@ -219,13 +227,11 @@ func (s *Starter) startTunnels(ctx context.Context) {
 				defer wg.Done()
 				tunnel, err := sshtunnel.NewTunnel(gateway, tunnelStr)
 				if err != nil {
-					log.Printf("ERROR: init tunnel - %s: %v", tunnelStr, err)
-					s.stop()
+					errCh <- fmt.Errorf("init tunnel - %s: %w", tunnelStr, err)
 					return
 				}
 				if err := tunnel.Forward(ctx); err != nil {
-					log.Printf("ERROR: forward tunnel - %s: %v", tunnelStr, err)
-					s.stop()
+					errCh <- fmt.Errorf("forward tunnel - %s: %w", tunnelStr, err)
 				}
 			}(t)
 		}
