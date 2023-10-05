@@ -1,6 +1,6 @@
 # sshtunnel
 
-[![Actions Status](https://github.com/li-go/sshtunnel/workflows/Go/badge.svg)](https://github.com/li-go/sshtunnel/actions)
+[![Actions Status](https://github.com/sltc-li/sshtunnel/workflows/Go/badge.svg)](https://github.com/sltc-li/sshtunnel/actions)
 
 A tool helps to do ssh forwarding.
 
@@ -58,7 +58,7 @@ See [config.yaml.sample](cmd/tunnel/config.yml.sample) for format of config file
 ## Use go-bindata to build independent binary
 
 ```bash
-$ git clone https://github.com/li-go/sshtunnel.git && cd sshtunnel
+$ git clone https://github.com/sltc-li/sshtunnel.git && cd sshtunnel
 $ go get -u github.com/go-bindata/go-bindata
 $ go-bindata -o=bindata.go -pkg=sshtunnel -tags=bindata ~/.ssh
 $ go build -tags bindata ./cmd/tunnel/main.go
