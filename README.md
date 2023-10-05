@@ -13,7 +13,7 @@ A tool helps to do ssh forwarding.
 To install the library and command line program, use the following:
 
 ```bash
-$ go install github.com/li-go/sshtunnel/cmd/tunnel@latest
+$ go install github.com/sltc-li/sshtunnel/cmd/tunnel@latest
 ```
 
 ## Usage
