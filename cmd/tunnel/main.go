@@ -17,8 +17,8 @@ import (
 
 	"github.com/adrg/xdg"
 
-	"github.com/li-go/sshtunnel"
-	"github.com/li-go/sshtunnel/syscallhelper"
+	"github.com/sltc-li/sshtunnel"
+	"github.com/sltc-li/sshtunnel/syscallhelper"
 )
 
 func setupCli() {
