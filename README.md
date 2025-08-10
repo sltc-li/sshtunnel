@@ -6,7 +6,7 @@ A tool helps to do ssh forwarding.
 
 ## Features
 
-* Usable as a CLI tool or as a library.
+- Usable as a CLI tool or as a library.
 
 ## Installation
 
@@ -45,9 +45,10 @@ GLOBAL OPTIONS:
    --version, -v             print the version (default: false)
 ```
 
-See [config.yaml.sample](cmd/tunnel/config.yml.sample) for format of config file.
+See [config.yml.sample](cmd/tunnel/config.yml.sample) for format of config file.
 
 ## Configuration File
+
 `tunnel` by default consults a few locations for the config files.
 
 1. specified in `--config` or `-c`
