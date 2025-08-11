@@ -43,7 +43,7 @@ type dialer interface {
 	Close() error
 }
 
-func newDailer(
+func newDialer(
 	keyFiles []KeyFile,
 	gatewayStr string, // user@addr:port
 	gatewayProxyCommand string,

@@ -16,7 +16,7 @@ func NewGateway(
 	gatewayStr string, // user@addr:port
 	gatewayProxyCommand string,
 ) (*Gateway, error) {
-	d, err := newDailer(keyFiles, gatewayStr, gatewayProxyCommand)
+	d, err := newDialer(keyFiles, gatewayStr, gatewayProxyCommand)
 	if err != nil {
 		return nil, err
 	}
