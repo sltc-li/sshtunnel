@@ -7,11 +7,13 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 var (
@@ -20,7 +22,8 @@ var (
 
 type sshClientWrapper struct {
 	*ssh.Client
-	cmd *exec.Cmd
+	cmd       *exec.Cmd
+	proxyConn net.Conn
 }
 
 func (c *sshClientWrapper) Dial(n, addr string) (net.Conn, error) {
@@ -32,6 +35,9 @@ func (c *sshClientWrapper) Dial(n, addr string) (net.Conn, error) {
 
 func (c *sshClientWrapper) Close() error {
 	err := c.Client.Close()
+	if c.proxyConn != nil {
+		_ = c.proxyConn.Close()
+	}
 	if c.cmd != nil {
 		_ = syscall.Kill(-c.cmd.Process.Pid, syscall.SIGKILL)
 	}
@@ -62,10 +68,16 @@ func newDialer(
 	if _, _, err := net.SplitHostPort(gatewayHost); err != nil {
 		gatewayHost += ":22"
 	}
+	hostKeyCallback := ssh.InsecureIgnoreHostKey()
+	if home, err := os.UserHomeDir(); err == nil {
+		if cb, err := knownhosts.New(filepath.Join(home, ".ssh", "known_hosts")); err == nil {
+			hostKeyCallback = cb
+		}
+	}
 	config := &ssh.ClientConfig{
 		User:            gatewayUser,
 		Auth:            auth,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: hostKeyCallback,
 		Timeout:         2 * time.Second,
 	}
 	if gatewayProxyCommand == "" {
@@ -129,14 +141,18 @@ func (d *proxyDialer) Dial(ctx context.Context) (*sshClientWrapper, error) {
 	cmd.Stdout = proxyConn
 	cmd.Stderr = os.Stderr
 
-	errCh := make(chan error)
+	if err := cmd.Start(); err != nil {
+		_ = clientConn.Close()
+		_ = proxyConn.Close()
+		return nil, fmt.Errorf("start proxy command: %w", err)
+	}
+
+	errCh := make(chan error, 1)
 	go func() {
-		if err := cmd.Run(); err != nil {
-			errCh <- fmt.Errorf("start proxy command: %w", err)
-		}
+		errCh <- cmd.Wait()
 	}()
 
-	clientCh := make(chan *ssh.Client)
+	clientCh := make(chan *ssh.Client, 1)
 	go func() {
 		conn, incomingChannels, incomingRequests, err := ssh.NewClientConn(clientConn, d.host, d.config)
 		if err != nil {
@@ -149,13 +165,18 @@ func (d *proxyDialer) Dial(ctx context.Context) (*sshClientWrapper, error) {
 
 	select {
 	case err := <-errCh:
+		_ = clientConn.Close()
+		_ = proxyConn.Close()
 		return nil, err
 	case client := <-clientCh:
 		return &sshClientWrapper{
-			cmd:    cmd,
-			Client: client,
+			cmd:       cmd,
+			Client:    client,
+			proxyConn: proxyConn,
 		}, nil
 	case <-ctx.Done():
+		_ = clientConn.Close()
+		_ = proxyConn.Close()
 		if cmd.Process != nil {
 			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		}

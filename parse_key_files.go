@@ -2,10 +2,8 @@ package sshtunnel
 
 import (
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
-	"os/user"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
@@ -59,8 +57,9 @@ func parseKeyFiles(keyFiles []KeyFile) ([]ssh.AuthMethod, func(), error) {
 
 func readKeyFile(keyFilePath string) ([]byte, error) {
 	if strings.Contains(keyFilePath, "~") {
-		usr, _ := user.Current()
-		keyFilePath = strings.Replace(keyFilePath, "~", usr.HomeDir, 1)
+		if home, err := os.UserHomeDir(); err == nil {
+			keyFilePath = strings.Replace(keyFilePath, "~", home, 1)
+		}
 	}
 	// use assets
 	bb, err := Asset(keyFilePath[1:])
@@ -68,5 +67,5 @@ func readKeyFile(keyFilePath string) ([]byte, error) {
 		return bb, nil
 	}
 	// fallback to read file system
-	return ioutil.ReadFile(keyFilePath)
+	return os.ReadFile(keyFilePath)
 }
