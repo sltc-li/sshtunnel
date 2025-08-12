@@ -2,17 +2,16 @@ package sshtunnel
 
 import (
 	"os"
-	"os/user"
 	"path/filepath"
 	"testing"
 )
 
 func TestReadKeyFileExpandHome(t *testing.T) {
-	usr, err := user.Current()
+	home, err := os.UserHomeDir()
 	if err != nil {
-		t.Fatalf("user.Current: %v", err)
+		t.Fatalf("UserHomeDir: %v", err)
 	}
-	tmpFile, err := os.CreateTemp(usr.HomeDir, "key")
+	tmpFile, err := os.CreateTemp(home, "key")
 	if err != nil {
 		t.Fatalf("CreateTemp: %v", err)
 	}

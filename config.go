@@ -1,6 +1,7 @@
 package sshtunnel
 
 import (
+	"fmt"
 	"io"
 	"reflect"
 
@@ -43,6 +44,8 @@ func (f *KeyFile) UnmarshalYAML(unmarshal func(interface{}) error) error {
 			Path:       path,
 			Passphrase: passphrase,
 		}
+	default:
+		return fmt.Errorf("invalid key file type: %T", raw)
 	}
 	return nil
 }

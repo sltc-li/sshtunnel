@@ -7,7 +7,6 @@ import (
 	"log"
 	"net"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -60,32 +59,21 @@ func (g *Gateway) Close() error {
 }
 
 func (g *Gateway) KeepAlive(ctx context.Context) {
-	var aliveErrCount uint32
-
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
-		go func() {
-			if g.getC() == nil {
-				return
-			}
-
-			_, _, err := g.getC().SendRequest("keepalive@openssh.com", true, nil)
-			if err != nil {
-				atomic.StoreUint32(&aliveErrCount, 1)
-			}
-		}()
-
 		select {
 		case <-ticker.C:
-			if atomic.LoadUint32(&aliveErrCount) == 1 {
-				log.Printf("ERROR: keep alive of remote(%v), local(%v)", g.getC().RemoteAddr(), g.getC().LocalAddr())
+			c := g.getC()
+			if c == nil {
+				continue
+			}
+			if _, _, err := c.SendRequest("keepalive@openssh.com", true, nil); err != nil {
+				log.Printf("ERROR: keep alive of remote(%v), local(%v)", c.RemoteAddr(), c.LocalAddr())
 				if err := g.reconnect(ctx); err != nil {
 					log.Printf("ERROR: reconnect: %v", err)
 				}
-
-				atomic.StoreUint32(&aliveErrCount, 0)
 			}
 		case <-ctx.Done():
 			return
